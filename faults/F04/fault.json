@@ -1,0 +1,9 @@
+{
+  "id": "F04",
+  "category": "configuration",
+  "description": "orders.catalog.enabled changed from true to false in application.properties, so CatalogHealthIndicator reports DOWN.",
+  "expected_symptom": "GET /actuator/health returns HTTP 503 with {\"status\":\"DOWN\"}; all /api/orders endpoints still return 200.",
+  "diagnosed_file": "app/src/main/resources/application.properties",
+  "target_test": "com.autoimmune.orders.F04TargetTest",
+  "test_dir": "app/src/test/java/com/autoimmune/orders"
+}

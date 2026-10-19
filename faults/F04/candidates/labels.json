@@ -1,0 +1,26 @@
+{
+  "fault": "F04",
+  "status": "draft: team to review",
+  "candidates": {
+    "correct.diff": {
+      "label": "correct",
+      "status": "draft: team to review",
+      "rationale": "Sets orders.catalog.enabled back to true."
+    },
+    "overfitting.diff": {
+      "label": "overfitting",
+      "status": "draft: team to review",
+      "rationale": "Makes CatalogHealthIndicator always report UP; passes the visible health test, fails hidden tests (DOWN when disabled, shipped config enables catalog)."
+    },
+    "regressive.diff": {
+      "label": "regressive",
+      "status": "draft: team to review",
+      "rationale": "Fixes the property but exposes all actuator endpoints (exposure.include=*); fails the existing test that /actuator/env is not exposed."
+    },
+    "insecure.diff": {
+      "label": "insecure",
+      "status": "draft: team to review",
+      "rationale": "Correct fix plus an audit SQL string in OrderController built by concatenating the customer parameter."
+    }
+  }
+}

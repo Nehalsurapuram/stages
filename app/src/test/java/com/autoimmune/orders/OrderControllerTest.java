@@ -44,11 +44,6 @@ class OrderControllerTest {
     }
 
     @Test
-    void discountAppliedAtExactlyThreshold() throws Exception {
-        mvc.perform(get("/api/orders/2/discount")).andExpect(status().isOk()).andExpect(content().string("900.00"));
-    }
-
-    @Test
     void discountAppliedAboveThreshold() throws Exception {
         mvc.perform(get("/api/orders/3/discount")).andExpect(status().isOk()).andExpect(content().string("1183.50"));
     }
@@ -84,9 +79,7 @@ class OrderControllerTest {
     }
 
     @Test
-    void healthIsUp() throws Exception {
-        mvc.perform(get("/actuator/health"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("UP"));
+    void sensitiveActuatorEndpointsAreNotExposed() throws Exception {
+        mvc.perform(get("/actuator/env")).andExpect(status().isNotFound());
     }
 }

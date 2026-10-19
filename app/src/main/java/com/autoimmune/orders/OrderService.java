@@ -43,8 +43,12 @@ public class OrderService {
     }
 
     public List<Order> searchByCustomer(String customer) {
+        if (customer == null || customer.isBlank()) {
+            throw new MissingCustomerException();
+        }
+        String name = customer.trim();
         return repository.findAll().stream()
-                .filter(o -> o.customer().equalsIgnoreCase(customer))
+                .filter(o -> o.customer().equalsIgnoreCase(name))
                 .toList();
     }
 }

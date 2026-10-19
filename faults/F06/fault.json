@@ -1,0 +1,9 @@
+{
+  "id": "F06",
+  "category": "business_logic",
+  "description": "Discount threshold check changed from >= 1000 to > 1000 in OrderService.discountedTotal.",
+  "expected_symptom": "GET /api/orders/2/discount returns HTTP 200 with 1000.00 instead of 900.00 (order totalling exactly 1000.00 loses its 10% discount). No error is logged.",
+  "diagnosed_file": "app/src/main/java/com/autoimmune/orders/OrderService.java",
+  "target_test": "com.autoimmune.orders.F06TargetTest",
+  "test_dir": "app/src/test/java/com/autoimmune/orders"
+}

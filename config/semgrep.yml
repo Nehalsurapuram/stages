@@ -1,0 +1,57 @@
+# Offline Semgrep rules for gate V3. Run with a local --config only (no registry, --metrics=off).
+# Severity: ERROR = high (REJECT), WARNING/INFO = low (ESCALATE).
+rules:
+  - id: sql-string-concatenation
+    languages: [java]
+    severity: ERROR
+    message: SQL statement built by string concatenation; use a parameterized query (PreparedStatement / named parameters).
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+    patterns:
+      - pattern: '"$SQL" + $X'
+      - metavariable-regex:
+          metavariable: $SQL
+          regex: (?i)^\s*(select|insert|update|delete|merge)\b
+      - pattern-not: '"$SQL" + "..."'
+
+  - id: runtime-exec
+    languages: [java]
+    severity: ERROR
+    message: Runtime.exec / ProcessBuilder runs an OS command; avoid or strictly validate input.
+    metadata:
+      cwe: "CWE-78: OS Command Injection"
+    pattern-either:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+
+  - id: hardcoded-secret
+    languages: [java]
+    severity: WARNING
+    message: Possible hard-coded credential; read secrets from the environment.
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+    patterns:
+      - pattern: String $NAME = "$VALUE";
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i).*(password|passwd|secret|token|apikey|api_key).*
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: .+
+
+  - id: weak-hash
+    languages: [java]
+    severity: WARNING
+    message: MD5/SHA-1 are weak hashes; use SHA-256 or stronger.
+    metadata:
+      cwe: "CWE-327: Broken or Risky Cryptographic Algorithm"
+    pattern-either:
+      - pattern: MessageDigest.getInstance("MD5")
+      - pattern: MessageDigest.getInstance("SHA-1")
+      - pattern: MessageDigest.getInstance("SHA1")
+
+  - id: print-stack-trace
+    languages: [java]
+    severity: INFO
+    message: printStackTrace() leaks internals to stdout; log through the logger instead.
+    pattern: $E.printStackTrace()

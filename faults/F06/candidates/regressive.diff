@@ -1,0 +1,13 @@
+diff --git a/app/src/main/java/com/autoimmune/orders/OrderService.java b/app/src/main/java/com/autoimmune/orders/OrderService.java
+index d4bdd16..0b68086 100644
+--- a/app/src/main/java/com/autoimmune/orders/OrderService.java
++++ b/app/src/main/java/com/autoimmune/orders/OrderService.java
+@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
+ @Service
+ public class OrderService {
+ 
+-    static final BigDecimal DISCOUNT_THRESHOLD = new BigDecimal("1000.00");
++    static final BigDecimal DISCOUNT_THRESHOLD = new BigDecimal("900.00");
+     static final BigDecimal DISCOUNT_FACTOR = new BigDecimal("0.90");
+ 
+     private final OrderRepository repository;

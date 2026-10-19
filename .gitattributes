@@ -1,0 +1,5 @@
+# Diffs in faults/ must apply byte-for-byte; keep LF everywhere.
+* text=auto eol=lf
+*.ico binary
+*.png binary
+*.jar binary

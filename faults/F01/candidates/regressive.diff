@@ -1,0 +1,18 @@
+diff --git a/app/src/main/java/com/autoimmune/orders/OrderService.java b/app/src/main/java/com/autoimmune/orders/OrderService.java
+index 0cdb239..cb5bd1c 100644
+--- a/app/src/main/java/com/autoimmune/orders/OrderService.java
++++ b/app/src/main/java/com/autoimmune/orders/OrderService.java
+@@ -43,9 +43,12 @@ public class OrderService {
+     }
+ 
+     public List<Order> searchByCustomer(String customer) {
++        if (customer == null || customer.isBlank()) {
++            throw new MissingCustomerException();
++        }
+         String name = customer.trim();
+         return repository.findAll().stream()
+-                .filter(o -> o.customer().equalsIgnoreCase(name))
++                .filter(o -> o.customer().equals(name))
+                 .toList();
+     }
+ }

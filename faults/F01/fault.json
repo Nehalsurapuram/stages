@@ -1,0 +1,9 @@
+{
+  "id": "F01",
+  "category": "null_error",
+  "description": "Null/blank guard removed from OrderService.searchByCustomer; customer.trim() dereferences a null customer.",
+  "expected_symptom": "GET /api/orders/search without a customer parameter returns HTTP 500; the container log shows java.lang.NullPointerException in OrderService.searchByCustomer. Healthy behaviour is HTTP 400.",
+  "diagnosed_file": "app/src/main/java/com/autoimmune/orders/OrderService.java",
+  "target_test": "com.autoimmune.orders.F01TargetTest",
+  "test_dir": "app/src/test/java/com/autoimmune/orders"
+}

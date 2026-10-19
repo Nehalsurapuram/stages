@@ -1,0 +1,26 @@
+{
+  "fault": "F01",
+  "status": "draft: team to review",
+  "candidates": {
+    "correct.diff": {
+      "label": "correct",
+      "status": "draft: team to review",
+      "rationale": "Restores the null/blank guard (HTTP 400)."
+    },
+    "overfitting.diff": {
+      "label": "overfitting",
+      "status": "draft: team to review",
+      "rationale": "Guards only null; passes the visible missing-parameter test, fails hidden tests for empty and whitespace customer."
+    },
+    "regressive.diff": {
+      "label": "regressive",
+      "status": "draft: team to review",
+      "rationale": "Restores the guard but switches to case-sensitive equals(); fails the existing case-insensitive search test."
+    },
+    "insecure.diff": {
+      "label": "insecure",
+      "status": "draft: team to review",
+      "rationale": "Correct fix plus a search SQL string built by concatenating the customer parameter."
+    }
+  }
+}

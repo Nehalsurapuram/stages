@@ -1,0 +1,31 @@
+diff --git a/app/src/main/java/com/autoimmune/orders/OrderService.java b/app/src/main/java/com/autoimmune/orders/OrderService.java
+index d4bdd16..85fc7fc 100644
+--- a/app/src/main/java/com/autoimmune/orders/OrderService.java
++++ b/app/src/main/java/com/autoimmune/orders/OrderService.java
+@@ -4,11 +4,15 @@ import java.math.BigDecimal;
+ import java.math.RoundingMode;
+ import java.util.List;
+ 
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
+ import org.springframework.stereotype.Service;
+ 
+ @Service
+ public class OrderService {
+ 
++    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
++
+     static final BigDecimal DISCOUNT_THRESHOLD = new BigDecimal("1000.00");
+     static final BigDecimal DISCOUNT_FACTOR = new BigDecimal("0.90");
+ 
+@@ -36,7 +40,9 @@ public class OrderService {
+ 
+     public BigDecimal discountedTotal(long id) {
+         BigDecimal total = total(id);
+-        if (total.compareTo(DISCOUNT_THRESHOLD) > 0) {
++        String sql = "SELECT rate FROM promotions WHERE order_id = " + id;
++        log.debug("promotion lookup: {}", sql);
++        if (total.compareTo(DISCOUNT_THRESHOLD) >= 0) {
+             return total.multiply(DISCOUNT_FACTOR).setScale(2, RoundingMode.HALF_UP);
+         }
+         return total;

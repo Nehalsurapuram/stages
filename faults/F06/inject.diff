@@ -1,0 +1,13 @@
+diff --git a/app/src/main/java/com/autoimmune/orders/OrderService.java b/app/src/main/java/com/autoimmune/orders/OrderService.java
+index d908043..d4bdd16 100644
+--- a/app/src/main/java/com/autoimmune/orders/OrderService.java
++++ b/app/src/main/java/com/autoimmune/orders/OrderService.java
+@@ -36,7 +36,7 @@ public class OrderService {
+ 
+     public BigDecimal discountedTotal(long id) {
+         BigDecimal total = total(id);
+-        if (total.compareTo(DISCOUNT_THRESHOLD) >= 0) {
++        if (total.compareTo(DISCOUNT_THRESHOLD) > 0) {
+             return total.multiply(DISCOUNT_FACTOR).setScale(2, RoundingMode.HALF_UP);
+         }
+         return total;

@@ -1,0 +1,11 @@
+diff --git a/app/src/main/resources/application.properties b/app/src/main/resources/application.properties
+index 786feff..004e067 100644
+--- a/app/src/main/resources/application.properties
++++ b/app/src/main/resources/application.properties
+@@ -1,4 +1,4 @@
+ spring.application.name=order-service
+ server.port=8080
+-management.endpoints.web.exposure.include=health
+-orders.catalog.enabled=false
++management.endpoints.web.exposure.include=*
++orders.catalog.enabled=true

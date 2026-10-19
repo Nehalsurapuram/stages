@@ -35,7 +35,7 @@ public class OrderController {
     }
 
     @GetMapping("/search")
-    public List<Order> search(@RequestParam String customer) {
+    public List<Order> search(@RequestParam(required = false) String customer) {
         return service.searchByCustomer(customer);
     }
 }
