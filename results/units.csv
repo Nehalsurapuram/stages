@@ -1,0 +1,17 @@
+fault,candidate_id,label,run_id,V0,V1,V2,V3,tier,decision,deployed,rolled_back,approval_source
+F01,F01-scripted-17c59e87,ineffective,gates-ineffective-20261019t151044z,pass,fail,not_run,not_run,high,REJECT,False,,
+F01,F01-scripted-4eeb7107,insecure,f01-rule-scripted-20261019t143910z,pass,pass,pass,fail,high,REJECT,False,,
+F01,F01-scripted-575d5aad,correct,f01-rule-scripted-20261019t143910z,pass,pass,pass,pass,low,AUTO_APPLY,True,False,
+F01,F01-scripted-b0cc1dd7,regressive,f01-rule-scripted-20261019t143910z,pass,pass,fail,not_run,high,REJECT,False,,
+F01,F01-scripted-fb8fb0d5,overfitting,f01-rule-scripted-20261019t143910z,pass,pass,pass,pass,low,AUTO_APPLY,False,,
+F04,F04-scripted-0fd9d020,ineffective,gates-ineffective-20261019t151044z,pass,fail,not_run,not_run,high,REJECT,False,,
+F04,F04-scripted-331031ad,regressive,f04-rule-scripted-approved-20261019t144627z,pass,pass,fail,not_run,high,REJECT,False,,
+F04,F04-scripted-34e008d0,overfitting,f04-rule-scripted-approved-20261019t144627z,pass,pass,pass,pass,medium,ESCALATE,False,,
+F04,F04-scripted-4d0272b1,correct,f04-rule-scripted-approved-20261019t144627z,pass,pass,pass,pass,medium,ESCALATE,True,False,scripted_test
+F04,F04-scripted-7e4e4cc3,insecure,f04-rule-scripted-approved-20261019t144627z,pass,pass,pass,fail,high,REJECT,False,,
+F06,F06-scripted-05420f6c,insecure,f06-rule-scripted-20261019t143130z,pass,pass,pass,fail,high,REJECT,False,,
+F06,F06-scripted-0d38b9b9,regressive,f06-rule-scripted-20261019t143130z,pass,pass,fail,not_run,high,REJECT,False,,
+F06,F06-scripted-7509cb64,slow,f06-rule-scripted-20261019t143130z,pass,pass,pass,pass,low,AUTO_APPLY,True,True,
+F06,F06-scripted-81484cbc,overfitting,f06-rule-scripted-20261019t143130z,pass,pass,pass,pass,low,AUTO_APPLY,True,False,
+F06,F06-scripted-b16cfed7,ineffective,gates-ineffective-20261019t151044z,pass,fail,not_run,not_run,high,REJECT,False,,
+F06,F06-scripted-fd6a948c,correct,f06-rule-scripted-20261019t143130z,pass,pass,pass,pass,low,AUTO_APPLY,True,False,

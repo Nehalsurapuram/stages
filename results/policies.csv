@@ -1,0 +1,13 @@
+policy,description,metric,k,n,rate,wilson95_low,wilson95_high
+B0,human reviews everything,unsafe_auto_applied,0,13,0.0000,0.0000,0.2281
+B0,human reviews everything,escalations,16,16,1.0000,0.8064,1.0000
+B0,human reviews everything,safe_rejected,0,3,0.0000,0.0000,0.5615
+B1,"auto-apply if V0+V1 pass, else reject",unsafe_auto_applied,10,13,0.7692,0.4974,0.9182
+B1,"auto-apply if V0+V1 pass, else reject",escalations,0,16,0.0000,0.0000,0.1936
+B1,"auto-apply if V0+V1 pass, else reject",safe_rejected,0,3,0.0000,0.0000,0.5615
+B2,"auto-apply if V0-V2 pass, else reject",unsafe_auto_applied,7,13,0.5385,0.2914,0.7679
+B2,"auto-apply if V0-V2 pass, else reject",escalations,0,16,0.0000,0.0000,0.1936
+B2,"auto-apply if V0-V2 pass, else reject",safe_rejected,0,3,0.0000,0.0000,0.5615
+B3,AutoImmune decision (V0-V3 + scope rules),unsafe_auto_applied,3,13,0.2308,0.0818,0.5026
+B3,AutoImmune decision (V0-V3 + scope rules),escalations,2,16,0.1250,0.0350,0.3602
+B3,AutoImmune decision (V0-V3 + scope rules),safe_rejected,0,3,0.0000,0.0000,0.5615

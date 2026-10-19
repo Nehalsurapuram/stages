@@ -1,0 +1,4 @@
+approval_source,run_id,fault,candidate_id,deployed
+human_relayed,demo-f04-correct-20261019t141827z,F04,F04-scripted-4d0272b1,False
+human_relayed,demo-f04-correct-20261019t141848z,F04,F04-scripted-4d0272b1,True
+scripted_test,f04-rule-scripted-approved-20261019t144627z,F04,F04-scripted-4d0272b1,True

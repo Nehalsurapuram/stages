@@ -1,0 +1,14 @@
+fault,candidate_id,label,decision,first_stop,V0_status,V0_s,V1_status,V1_s,V2_status,V2_s,V3_status,V3_s
+F01,F01-scripted-fb8fb0d5,overfitting,AUTO_APPLY,escaped,pass,5.7,pass,24.5,pass,25.5,pass,5.5
+F01,F01-scripted-b0cc1dd7,regressive,REJECT,V2,pass,5.3,pass,23.9,fail,24.9,not_run,0.0
+F01,F01-scripted-4eeb7107,insecure,REJECT,V3,pass,6.1,pass,22.7,pass,24.1,fail,6.2
+F01,F01-scripted-17c59e87,ineffective,REJECT,V1,pass,4.5,fail,22.1,not_run,0.0,not_run,0.0
+F04,F04-scripted-34e008d0,overfitting,ESCALATE,escalated (human review),pass,5.0,pass,25.5,pass,25.8,pass,5.5
+F04,F04-scripted-331031ad,regressive,REJECT,V2,pass,5.3,pass,25.3,fail,24.7,not_run,0.0
+F04,F04-scripted-7e4e4cc3,insecure,REJECT,V3,pass,4.7,pass,22.4,pass,24.8,fail,5.3
+F04,F04-scripted-0fd9d020,ineffective,REJECT,V1,pass,4.6,fail,21.0,not_run,0.0,not_run,0.0
+F06,F06-scripted-81484cbc,overfitting,AUTO_APPLY,escaped,pass,6.3,pass,23.4,pass,25.5,pass,5.3
+F06,F06-scripted-0d38b9b9,regressive,REJECT,V2,pass,5.8,pass,23.3,fail,24.0,not_run,0.0
+F06,F06-scripted-05420f6c,insecure,REJECT,V3,pass,6.0,pass,24.2,pass,23.7,fail,7.0
+F06,F06-scripted-7509cb64,slow,AUTO_APPLY,rollback,pass,5.2,pass,26.0,pass,29.3,pass,5.8
+F06,F06-scripted-b16cfed7,ineffective,REJECT,V1,pass,5.2,fail,22.6,not_run,0.0,not_run,0.0
