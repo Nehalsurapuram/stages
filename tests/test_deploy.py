@@ -30,20 +30,6 @@ class Resp:
         return json.loads(self.text)
 
 
-def fake_http(routes, delay=None):
-    calls = []
-
-    def get(url, timeout=None):
-        path = url.split("18080", 1)[1]
-        calls.append(path)
-        if delay and path in delay:
-            time.sleep(delay[path])
-        return Resp(*routes[path])
-
-    get.calls = calls
-    return get
-
-
 class FakeClock:
     def __init__(self):
         self.t = 0.0
@@ -55,9 +41,26 @@ class FakeClock:
         self.t += max(s, 0.0)
 
 
-def window(http, cfg=CFG):
-    clock = FakeClock()
-    return deploy.health_window(cfg, PROBES, http_get=http, clock=clock, sleep=clock.sleep)
+def fake_http(routes, delay=None, clock=None, stall=None):
+    """delay: {path: seconds} added to the fake clock per request. stall: (call number, seconds) frozen once."""
+    calls = []
+
+    def get(url, timeout=None):
+        path = url.split("18080", 1)[1]
+        calls.append(path)
+        if delay and path in delay:
+            clock.t += delay[path]
+        if stall and len(calls) == stall[0]:
+            clock.t += stall[1]
+        return Resp(*routes[path])
+
+    get.calls = calls
+    return get
+
+
+def window(http, cfg=CFG, clock=None, sleep=None):
+    clock = clock or FakeClock()
+    return deploy.health_window(cfg, PROBES, http_get=http, clock=clock, sleep=sleep or clock.sleep)
 
 
 # ------------------------------------------------------------------ health window
@@ -82,10 +85,59 @@ def test_wrong_value_is_a_breach():
 
 
 def test_latency_over_limit_is_a_breach():
-    w = window(fake_http(HEALTHY, delay={"/api/orders/2/discount": 0.08}), dict(CFG, latency_limit_ms=50))
-    assert w["passed"] is False
-    (msg,) = w["breach"]["breaches"]
-    assert msg.startswith("probe order2-discount-at-threshold took ") and msg.endswith("ms, limit 50 ms")
+    clock = FakeClock()
+    w = window(fake_http(HEALTHY, delay={"/api/orders/2/discount": 3.015}, clock=clock), clock=clock)
+    assert w["passed"] is False and "invalid" not in w
+    assert w["breach"]["breaches"] == ["probe order2-discount-at-threshold took 3015 ms, limit 2000 ms"]
+
+
+# ------------------------------------------------------------------ observer suspended (host sleep)
+
+def test_oversleep_between_checks_invalidates_the_window():
+    clock = FakeClock()
+    naps = iter([0, 0, 267])                       # third sleep: the host was suspended for 267 s extra
+
+    def sleep(s):
+        clock.t += max(s, 0.0) + next(naps, 0)
+
+    w = window(fake_http(HEALTHY, clock=clock), clock=clock, sleep=sleep)
+    assert w["passed"] is None and w["breach"] is None
+    assert w["invalid"]["invalid"] == "observer_suspended" and w["invalid"]["sign"] == "gap between checks"
+    assert w["invalid"]["gap_s"] > 9 and w["invalid"]["limit_s"] == 9
+    assert len(w["checks"]) == 4
+
+
+def test_request_frozen_mid_check_is_not_a_breach():
+    # The 264 s health request seen on the laptop: a host freeze, not the service (its timeout is 5 s).
+    clock = FakeClock()
+    w = window(fake_http(HEALTHY, clock=clock, stall=(16, 264.0)), clock=clock)
+    assert w["passed"] is None and w["invalid"]["sign"] == "request outlasted its timeout"
+    assert w["invalid"]["request_s"] == 264.0 and w["invalid"]["limit_s"] == 14.0
+
+
+def test_hung_service_is_still_a_breach_not_a_suspension():
+    clock = FakeClock()
+    import requests as rq
+
+    def timing_out(url, timeout=None):
+        clock.t += timeout                          # every request runs into its own timeout
+        raise rq.Timeout("read timed out")
+
+    w = window(timing_out, clock=clock)
+    assert w["passed"] is False and "invalid" not in w
+    assert w["breach"]["breaches"][0] == "/actuator/health not UP (http=None, status=None)"
+
+
+def test_release_with_suspended_observer_neither_promotes_nor_counts_a_rollback(tmp_path, monkeypatch):
+    invalid = {"invalid": "observer_suspended", "sign": "gap between checks", "gap_s": 267.0, "limit_s": 9}
+    events = _fake_swap(monkeypatch, {"passed": None, "invalid": invalid, "checks": [{"ok": True}],
+                                      "breach": None, "breach_clock": None})
+    res = deploy.release(AUTO, tmp_path, "r", run_dir=tmp_path, cfg=CFG)
+    assert res["outcome"] == "invalid: observer_suspended" and res["rolled_back"] is None
+    assert events == ["stop", "run order-service:baseline", "wait healthy=True"]
+    rec = json.loads((tmp_path / "deploy.json").read_text(encoding="utf-8"))
+    assert rec["outcome"] == "invalid" and rec["invalid"] == invalid and "promoted_image" not in rec
+    assert not (tmp_path / "rollback.json").exists()
 
 
 def test_health_down_is_a_breach():

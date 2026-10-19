@@ -39,24 +39,6 @@ class Resp:
         self.status_code, self.text = status, text
 
 
-def http(routes, delay=None, timeline=None):
-    """Fake requests.get. timeline: list of route overrides per poll (index by health-call count)."""
-    state = {"polls": 0}
-
-    def get(url, timeout=None):
-        path = url.split("18080", 1)[1]
-        if path == "/actuator/health":
-            state["polls"] += 1
-        table = dict(routes)
-        if timeline:
-            table.update(timeline[min(state["polls"], len(timeline)) - 1])
-        if delay and path in delay:
-            time.sleep(delay[path])
-        return Resp(*table[path])
-
-    return get
-
-
 class Clock:
     def __init__(self):
         self.t = 0.0
@@ -68,10 +50,41 @@ class Clock:
         self.t += max(s, 0.0)
 
 
-def watch(get, tmp_path, cfg=CFG, timeout_s=30, logs="", **kw):
-    clock = Clock()
+CLOCK = None
+
+
+def http(routes, delay=None, timeline=None, stall=None):
+    """Fake requests.get. timeline: route overrides per poll (by health-call count). delay: {path: s} on the
+    fake clock. stall: (poll number, seconds) the observer is frozen during that poll's health request."""
+    state = {"polls": 0}
+
+    def get(url, timeout=None):
+        path = url.split("18080", 1)[1]
+        if path == "/actuator/health":
+            state["polls"] += 1
+            if stall and state["polls"] == stall[0]:
+                CLOCK.t += stall[1]
+        table = dict(routes)
+        if timeline:
+            table.update(timeline[min(state["polls"], len(timeline)) - 1])
+        if delay and path in delay:
+            CLOCK.t += delay[path]
+        return Resp(*table[path])
+
+    return get
+
+
+def watch(get, tmp_path, cfg=CFG, timeout_s=30, logs="", sleep=None, **kw):
+    clock = CLOCK
     return detector.watch(timeout_s, run_id="t", cfg=cfg, probes=PROBES, http_get=get, clock=clock,
-                          sleep=clock.sleep, logs_fn=lambda: logs, runs_dir=tmp_path, **kw)
+                          sleep=sleep or clock.sleep, logs_fn=lambda: logs, runs_dir=tmp_path, **kw)
+
+
+@pytest.fixture(autouse=True)
+def fresh_clock():
+    global CLOCK
+    CLOCK = Clock()
+    yield CLOCK
 
 
 def test_healthy_service_raises_nothing(tmp_path):
@@ -130,9 +143,31 @@ def test_health_down_incident(tmp_path):
 
 
 def test_latency_incident(tmp_path):
-    inc = watch(http(HEALTHY, delay={"/api/orders/2/discount": 0.06}), tmp_path, cfg=dict(CFG, latency_limit_ms=40))
+    inc = watch(http(HEALTHY, delay={"/api/orders/2/discount": 3.015}), tmp_path)
     assert (inc["rule"], inc["kind"]) == ("probe_latency", "latency")
-    assert inc["evidence"][0].startswith("/api/orders/2/discount took ") and inc["evidence"][0].endswith("limit 40 ms")
+    assert inc["evidence"] == ["/api/orders/2/discount took 3015 ms, limit 2000 ms"]
+
+
+def test_oversleep_between_polls_is_invalid_not_quiet(tmp_path, fresh_clock):
+    naps = iter([0, 0, 300])
+
+    def sleep(s):
+        fresh_clock.t += max(s, 0.0) + next(naps, 0)
+
+    res = watch(http(HEALTHY), tmp_path, timeout_s=600, sleep=sleep)
+    assert res["status"] == "invalid" and res["invalid"] == "observer_suspended"
+    assert res["sign"] == "gap between checks" and res["gap_s"] > 15
+    assert json.loads((tmp_path / "t" / "detector.json").read_text(encoding="utf-8")) == res
+    assert not (tmp_path / "t" / "incident.json").exists()
+
+
+def test_freeze_during_a_bad_streak_is_invalid_not_an_incident(tmp_path):
+    # The first poll is genuinely bad; the second is frozen 264 s mid-request. No incident from that.
+    routes = {**HEALTHY, "/api/orders/2/discount": (200, "1000.00")}
+    res = watch(http(routes, stall=(2, 264.0)), tmp_path)
+    assert res["status"] == "invalid" and res["sign"] == "request outlasted its timeout"
+    assert res["bad_checks_before"] == 1
+    assert not (tmp_path / "t" / "incident.json").exists()
 
 
 def test_unreachable_service_counts_as_5xx_and_health_down(tmp_path):

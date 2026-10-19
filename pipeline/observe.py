@@ -18,6 +18,32 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 BODY_LIMIT = 500
+HEALTH_TIMEOUT_S = 5.0
+SUSPEND_FACTOR = 3
+
+
+def request_timeout_s(cfg: dict) -> float:
+    return max(HEALTH_TIMEOUT_S, 2.5 * cfg["latency_limit_ms"] / 1000)
+
+
+def suspension(gap_s: float | None, check: dict, interval_s: float, cfg: dict) -> dict | None:
+    """Was the observer itself frozen (e.g. host sleep)? Then the check proves nothing about the service.
+
+    Two signs, both a gap much longer than the check interval (SUSPEND_FACTOR x):
+      - the time from the end of the previous check to the start of this one, normally <= interval_s;
+      - one request lasting longer than its own timeout plus that margin, which a slow or hung service
+        cannot cause (the request would have timed out first).
+    """
+    margin = SUSPEND_FACTOR * interval_s
+    if gap_s is not None and gap_s > margin:
+        return {"invalid": "observer_suspended", "sign": "gap between checks",
+                "gap_s": round(gap_s, 1), "limit_s": margin}
+    worst_ms = max([check["health"]["ms"]] + [p["ms"] for p in check["probes"]])
+    limit_s = request_timeout_s(cfg) + margin
+    if worst_ms / 1000 > limit_s:
+        return {"invalid": "observer_suspended", "sign": "request outlasted its timeout",
+                "request_s": round(worst_ms / 1000, 1), "limit_s": limit_s}
+    return None
 
 
 def load_config(repo: Path = REPO) -> dict:
@@ -40,31 +66,32 @@ def same_value(expected: str, actual: str) -> bool:
         return expected.strip() == actual.strip()
 
 
-def _get(url: str, timeout: float, http_get) -> dict:
-    start = time.monotonic()
+def _get(url: str, timeout: float, http_get, clock) -> dict:
+    start = clock()
     try:
         r = http_get(url, timeout=timeout)
     except requests.RequestException as e:
-        return {"http": None, "value": None, "ms": round((time.monotonic() - start) * 1000),
+        return {"http": None, "value": None, "ms": round((clock() - start) * 1000),
                 "error": f"{type(e).__name__}: {e}"[:BODY_LIMIT]}
-    out = {"http": r.status_code, "value": r.text[:BODY_LIMIT], "ms": round((time.monotonic() - start) * 1000)}
+    out = {"http": r.status_code, "value": r.text[:BODY_LIMIT], "ms": round((clock() - start) * 1000)}
     if r.status_code >= 400:
         out["error_body"] = r.text[:BODY_LIMIT]
     return out
 
 
-def check(cfg: dict | None = None, probes: list[dict] | None = None, *, http_get=requests.get) -> dict:
+def check(cfg: dict | None = None, probes: list[dict] | None = None, *, http_get=requests.get,
+          clock=time.monotonic) -> dict:
     cfg = cfg or load_config()
     probes = load_probes() if probes is None else probes
-    timeout = max(5.0, 2.5 * cfg["latency_limit_ms"] / 1000)
-    health = _get(base_url(cfg) + "/actuator/health", timeout, http_get)
+    timeout = request_timeout_s(cfg)
+    health = _get(base_url(cfg) + "/actuator/health", HEALTH_TIMEOUT_S, http_get, clock)
     try:
         health["status"] = json.loads(health["value"]).get("status") if health["value"] else None
     except (ValueError, AttributeError):
         health["status"] = None
     results = []
     for p in probes:
-        res = {"probe": p["name"], "path": p["path"], **_get(base_url(cfg) + p["path"], timeout, http_get),
+        res = {"probe": p["name"], "path": p["path"], **_get(base_url(cfg) + p["path"], timeout, http_get, clock),
                "expect_status": p["expect_status"], "expect_body": p.get("expect_body")}
         results.append(res)
     return {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "health": health, "probes": results}

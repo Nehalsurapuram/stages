@@ -19,3 +19,5 @@ gate_timeouts_s:
 # (host 8080 is taken on the dev laptop, so 18080 there).
 app_port: 8080
 host_port: 18080
+# Orchestrator: how long detector.watch may run before a missing incident is an error.
+detect_timeout_s: 60

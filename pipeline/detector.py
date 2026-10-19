@@ -127,17 +127,27 @@ def watch(timeout_s: float, *, run_id: str | None = None, fault_id: str | None =
     probes = observe.load_probes() if probes is None else probes
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     interval, needed = cfg["poll_interval_s"], cfg["consecutive_failures"]
-    start, k, bad = clock(), 0, []
+    out = Path(runs_dir or REPO / "runs") / run_id
+    start, k, bad, prev_end = clock(), 0, [], None
     while clock() - start < timeout_s:
-        obs = observe.check(cfg, probes, http_get=http_get)
-        obs["t_s"] = round(clock() - start, 1)
+        begin = clock()
+        obs = observe.check(cfg, probes, http_get=http_get, clock=clock)
+        prev_end, gap = clock(), None if prev_end is None else begin - prev_end
+        obs["t_s"] = round(prev_end - start, 1)
+        stalled = observe.suspension(gap, obs, interval, cfg)
+        if stalled:
+            # The observer was frozen, so these checks prove nothing either way: no incident, no all-clear.
+            result = {"run_id": run_id, "status": "invalid", **stalled, "last_check": obs,
+                      "bad_checks_before": len(bad), "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "detector.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+            return result
         fired = evaluate(obs, cfg)
         if on_check:
             on_check(obs, fired)
         bad = bad + [(obs, fired)] if fired else []
         if len(bad) >= needed:
             incident = build_incident(bad, cfg, run_id, fault_id, logs_fn)
-            out = Path(runs_dir or REPO / "runs") / run_id
             out.mkdir(parents=True, exist_ok=True)
             (out / "incident.json").write_text(json.dumps(incident, indent=2), encoding="utf-8")
             return incident

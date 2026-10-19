@@ -26,7 +26,7 @@ from pathlib import Path
 import requests
 import yaml
 
-from pipeline.observe import same_value
+from pipeline.observe import HEALTH_TIMEOUT_S, request_timeout_s, same_value, suspension
 
 REPO = Path(__file__).resolve().parents[1]
 APP_CONTAINER = "autoimmune-app"
@@ -95,16 +95,16 @@ def _run_app(tag: str, cfg: dict) -> None:
 
 # --------------------------------------------------------------------------- HTTP checks
 
-def _health(cfg: dict, http_get=requests.get) -> dict:
+def _health(cfg: dict, http_get=requests.get, clock=time.monotonic) -> dict:
     url = base_url(cfg) + "/actuator/health"
-    start = time.monotonic()
+    start = clock()
     try:
-        r = http_get(url, timeout=5)
-        ms = (time.monotonic() - start) * 1000
+        r = http_get(url, timeout=HEALTH_TIMEOUT_S)
+        ms = (clock() - start) * 1000
         status = r.json().get("status") if "json" in r.headers.get("Content-Type", "") else None
         return {"http": r.status_code, "status": status, "ms": round(ms), "ok": r.status_code == 200 and status == "UP"}
     except requests.RequestException as e:
-        return {"http": None, "status": None, "ms": round((time.monotonic() - start) * 1000), "ok": False,
+        return {"http": None, "status": None, "ms": round((clock() - start) * 1000), "ok": False,
                 "error": type(e).__name__}
 
 
@@ -122,23 +122,23 @@ def wait_until(cfg: dict, healthy: bool, timeout: float = STARTUP_TIMEOUT_S, htt
 _same_body = same_value
 
 
-def check_once(cfg: dict, probes: list[dict], http_get=requests.get) -> dict:
+def check_once(cfg: dict, probes: list[dict], http_get=requests.get, clock=time.monotonic) -> dict:
     limit = cfg["latency_limit_ms"]
-    health = _health(cfg, http_get)
+    health = _health(cfg, http_get, clock)
     results, breaches = [], []
     if not health["ok"]:
         breaches.append(f"/actuator/health not UP (http={health['http']}, status={health['status']})")
     for p in probes:
-        start = time.monotonic()
+        start = clock()
         try:
-            r = http_get(base_url(cfg) + p["path"], timeout=max(5.0, 2.5 * limit / 1000))
-            ms = round((time.monotonic() - start) * 1000)
+            r = http_get(base_url(cfg) + p["path"], timeout=request_timeout_s(cfg))
+            ms = round((clock() - start) * 1000)
             body_ok = r.status_code == p["expect_status"] and (
                 p.get("expect_body") is None or _same_body(p["expect_body"], r.text))
             res = {"probe": p["name"], "http": r.status_code, "ms": ms, "body_ok": body_ok,
                    "latency_ok": ms < limit, "body": r.text[:200]}
         except requests.RequestException as e:
-            ms = round((time.monotonic() - start) * 1000)
+            ms = round((clock() - start) * 1000)
             res = {"probe": p["name"], "http": None, "ms": ms, "body_ok": False, "latency_ok": False,
                    "error": type(e).__name__}
         if not res["body_ok"]:
@@ -153,17 +153,23 @@ def check_once(cfg: dict, probes: list[dict], http_get=requests.get) -> dict:
 
 def health_window(cfg: dict | None = None, probes: list[dict] | None = None, *, http_get=requests.get,
                   clock=time.monotonic, sleep=time.sleep) -> dict:
-    """Check every check_interval_s for health_window_s; stop at the first breach. Every check is recorded."""
+    """Check every check_interval_s for health_window_s; stop at the first breach. Every check is recorded.
+    If the observer itself was frozen (observe.suspension), the window is invalid: neither passed nor breached."""
     cfg = cfg or load_config()
     probes = load_probes() if probes is None else probes
     window, interval = cfg["health_window_s"], cfg["check_interval_s"]
     start = clock()
     checks = []
-    k = 0
+    k, prev_end = 0, None
     while True:
-        c = check_once(cfg, probes, http_get)
-        c["t_s"] = round(clock() - start, 1)
+        begin = clock()
+        c = check_once(cfg, probes, http_get, clock)
+        prev_end, gap = clock(), None if prev_end is None else begin - prev_end
+        c["t_s"] = round(prev_end - start, 1)
         checks.append(c)
+        stalled = suspension(gap, c, interval, cfg)
+        if stalled:
+            return {"passed": None, "invalid": stalled, "checks": checks, "breach": None, "breach_clock": None}
         if not c["ok"]:
             return {"passed": False, "checks": checks, "breach": c, "breach_clock": clock()}
         k += 1
@@ -241,6 +247,13 @@ def rollback(previous_image: str, failed_image: str, breach: dict, breach_clock:
             "seconds_breach_to_healthy": round(time.monotonic() - breach_clock, 1), "healthy_after": True}
 
 
+def switch_to(tag: str, cfg: dict, healthy: bool = True) -> float:
+    """Run an existing image as the app (no build) and wait until it answers (or is healthy). Returns seconds."""
+    _stop_app()
+    _run_app(tag, cfg)
+    return wait_until(cfg, healthy=healthy)
+
+
 def _decision_dict(decision) -> dict:
     return decision.to_dict() if hasattr(decision, "to_dict") else dict(decision)
 
@@ -278,6 +291,17 @@ def release(decision, patched_source_dir: Path, run_id: str, *, approval: dict |
               "health_window": {"passed": window["passed"], "window_s": cfg["health_window_s"],
                                 "interval_s": cfg["check_interval_s"], "latency_limit_ms": cfg["latency_limit_ms"],
                                 "checks": window["checks"]}}
+    if window["passed"] is None:
+        # Observer suspended: the window proves nothing. Do not promote; put the previous image back as a
+        # precaution. This is not a breach, so there is no rollback.json and rolled_back stays unknown.
+        _stop_app()
+        _run_app(dep["previous_image"], cfg)
+        wait_until(cfg, healthy=True)
+        record.update(outcome="invalid", invalid=window["invalid"], restored_image=dep["previous_image"],
+                      finished_at=_now())
+        (run_dir / "deploy.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+        return {"deployed": True, "staged": False, "rolled_back": None, "outcome": "invalid: observer_suspended",
+                "image": dep["previous_image"], "checks": len(window["checks"]), "recovery_s": None}
     if window["passed"]:
         record.update(outcome="promoted", promoted_image=dep["new_image"], finished_at=_now())
         (run_dir / "deploy.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
