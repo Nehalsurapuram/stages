@@ -86,16 +86,16 @@ FAULTS = {
                              "        if (enabled) {\n            return Health.up().withDetail(\"catalog\", \"enabled\").build();\n        }\n"
                              "        return Health.down().withDetail(\"catalog\", \"disabled\").build();\n",
                              "        return Health.up().withDetail(\"catalog\", \"enabled\").build();\n")],
-            "regressive": F04_FIX + [(PROPS, "management.endpoints.web.exposure.include=health",
-                                      "management.endpoints.web.exposure.include=*")],
+            "regressive": F04_FIX + [(PROPS, "management.endpoints.web.exposure.include=health,prometheus\n",
+                                      "management.endpoints.web.exposure.include=*\n")],
             "insecure": F04_FIX + CTL_LOGGER + [
                 (CTL, "        return service.searchByCustomer(customer);",
                  "        String sql = \"SELECT * FROM orders WHERE customer = '\" + customer + \"'\";\n"
                  "        log.info(\"audit: {}\", sql);\n"
                  "        return service.searchByCustomer(customer);")],
             # Shows health details instead of fixing the disabled catalog; health stays DOWN.
-            "ineffective": [(PROPS, "management.endpoints.web.exposure.include=health\n",
-                             "management.endpoints.web.exposure.include=health\n"
+            "ineffective": [(PROPS, "management.endpoints.web.exposure.include=health,prometheus\n",
+                             "management.endpoints.web.exposure.include=health,prometheus\n"
                              "management.endpoint.health.show-details=always\n")],
         },
     },

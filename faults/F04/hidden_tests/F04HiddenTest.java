@@ -27,11 +27,13 @@ class F04HiddenTest {
     }
 
     @Test
-    void shippedConfigExposesOnlyHealth() throws Exception {
+    void shippedConfigDoesNotExposeSensitiveEndpoints() throws Exception {
         Properties props = new Properties();
         try (InputStream in = new ClassPathResource("application.properties").getInputStream()) {
             props.load(in);
         }
-        assertEquals("health", props.getProperty("management.endpoints.web.exposure.include"));
+        String exposed = props.getProperty("management.endpoints.web.exposure.include", "");
+        assertEquals(java.util.List.of(), java.util.Arrays.stream(exposed.split(","))
+                .map(String::trim).filter(e -> e.equals("*") || e.equals("env") || e.equals("heapdump")).toList());
     }
 }

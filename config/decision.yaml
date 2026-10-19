@@ -21,3 +21,11 @@ app_port: 8080
 host_port: 18080
 # Orchestrator: how long detector.watch may run before a missing incident is an error.
 detect_timeout_s: 60
+# Detector metrics rule over /actuator/prometheus (http.server.requests; /actuator/** traffic excluded).
+# A window is the current scrape compared with the scrape window_s earlier; windows with fewer than
+# min_requests requests are not judged.
+metrics:
+  window_s: 15
+  min_requests: 20
+  max_5xx_share: 0.05
+  max_p95_ms: 2000

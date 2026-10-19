@@ -81,5 +81,4 @@ class OrderControllerTest {
     @Test
     void sensitiveActuatorEndpointsAreNotExposed() throws Exception {
         mvc.perform(get("/actuator/env")).andExpect(status().isNotFound());
-    }
-}
+    }}

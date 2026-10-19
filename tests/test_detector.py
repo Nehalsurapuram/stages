@@ -120,7 +120,7 @@ def test_probe_5xx_incident_takes_stack_trace_from_docker_logs(tmp_path):
     routes = {**HEALTHY, "/api/orders/search": (500, '{"status":500,"error":"Internal Server Error"}')}
     inc = watch(http(routes), tmp_path, logs=NPE_LOGS, fault_id="F01")
     assert (inc["rule"], inc["kind"], inc["status"]) == ("probe_5xx", "exception", 500)
-    assert inc["stack_trace_source"] == "docker logs autoimmune-app"
+    assert inc["stack_trace_source"] == "docker logs autoimmune-app (plain text)"
     assert inc["stack_trace"].splitlines()[0].startswith("2026-10-19T12:00:05.208Z ERROR")
     assert "OrderService.searchByCustomer(OrderService.java:46)" in inc["stack_trace"]
     assert "later line" not in inc["stack_trace"]

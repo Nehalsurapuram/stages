@@ -30,12 +30,12 @@ index 76c824f..e560d6e 100644
      }
  }
 diff --git a/app/src/main/resources/application.properties b/app/src/main/resources/application.properties
-index 786feff..69fd673 100644
+index 86b478b..76e97f1 100644
 --- a/app/src/main/resources/application.properties
 +++ b/app/src/main/resources/application.properties
-@@ -1,4 +1,4 @@
- spring.application.name=order-service
+@@ -2,4 +2,4 @@ spring.application.name=order-service
  server.port=8080
- management.endpoints.web.exposure.include=health
+ management.endpoints.web.exposure.include=health,prometheus
+ management.metrics.distribution.percentiles-histogram.http.server.requests=true
 -orders.catalog.enabled=false
 +orders.catalog.enabled=true

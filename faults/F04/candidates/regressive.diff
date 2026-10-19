@@ -1,11 +1,12 @@
 diff --git a/app/src/main/resources/application.properties b/app/src/main/resources/application.properties
-index 786feff..004e067 100644
+index 86b478b..f05e4d0 100644
 --- a/app/src/main/resources/application.properties
 +++ b/app/src/main/resources/application.properties
-@@ -1,4 +1,4 @@
+@@ -1,5 +1,5 @@
  spring.application.name=order-service
  server.port=8080
--management.endpoints.web.exposure.include=health
--orders.catalog.enabled=false
+-management.endpoints.web.exposure.include=health,prometheus
 +management.endpoints.web.exposure.include=*
+ management.metrics.distribution.percentiles-histogram.http.server.requests=true
+-orders.catalog.enabled=false
 +orders.catalog.enabled=true

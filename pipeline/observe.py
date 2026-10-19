@@ -8,6 +8,8 @@ errors, the error body or exception. observe.py only measures; detector.py decid
 from __future__ import annotations
 
 import json
+import math
+import re
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -38,7 +40,8 @@ def suspension(gap_s: float | None, check: dict, interval_s: float, cfg: dict) -
     if gap_s is not None and gap_s > margin:
         return {"invalid": "observer_suspended", "sign": "gap between checks",
                 "gap_s": round(gap_s, 1), "limit_s": margin}
-    worst_ms = max([check["health"]["ms"]] + [p["ms"] for p in check["probes"]])
+    worst_ms = max([check["health"]["ms"]] + [p["ms"] for p in check["probes"]]
+                   + ([check["metrics"]["ms"]] if check.get("metrics") else []))
     limit_s = request_timeout_s(cfg) + margin
     if worst_ms / 1000 > limit_s:
         return {"invalid": "observer_suspended", "sign": "request outlasted its timeout",
@@ -79,6 +82,61 @@ def _get(url: str, timeout: float, http_get, clock) -> dict:
     return out
 
 
+# --------------------------------------------------------------------------- /actuator/prometheus
+
+REQUEST_METRIC = "http_server_requests_seconds"
+_SAMPLE = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(.*)\})?\s+(\S+)")
+_LABEL = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\]|\\.)*)"')
+
+
+def parse_prometheus(text: str) -> list[tuple[str, dict, float]]:
+    """Prometheus text exposition format -> [(metric name, labels, value)]. Comments and blank lines skipped."""
+    samples = []
+    for line in text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        m = _SAMPLE.match(line)
+        if not m:
+            continue
+        try:
+            value = float(m.group(3))
+        except ValueError:
+            continue
+        samples.append((m.group(1), dict(_LABEL.findall(m.group(2) or "")), value))
+    return samples
+
+
+def request_snapshot(text: str, exclude_prefix: str = "/actuator") -> dict:
+    """Cumulative http.server.requests counts per (uri, status) and histogram buckets summed over all series.
+    Actuator traffic (health checks, the scrape itself) is left out: it is the observer, not the service's users."""
+    counts: dict[tuple[str, str], float] = {}
+    buckets: dict[float, float] = {}
+    for name, labels, value in parse_prometheus(text):
+        if labels.get("uri", "").startswith(exclude_prefix):
+            continue
+        if name == REQUEST_METRIC + "_count":
+            key = (labels.get("uri", ""), labels.get("status", ""))
+            counts[key] = counts.get(key, 0.0) + value
+        elif name == REQUEST_METRIC + "_bucket" and "le" in labels:
+            le = math.inf if labels["le"] in ("+Inf", "Inf") else float(labels["le"])
+            buckets[le] = buckets.get(le, 0.0) + value
+    return {"counts": counts, "buckets": buckets}
+
+
+def scrape(cfg: dict, http_get=requests.get, clock=time.monotonic) -> dict:
+    """GET /actuator/prometheus (full body, not truncated) -> {"http", "ms", "snapshot" or None, "error"}."""
+    start = clock()
+    try:
+        r = http_get(base_url(cfg) + "/actuator/prometheus", timeout=HEALTH_TIMEOUT_S)
+    except requests.RequestException as e:
+        return {"http": None, "ms": round((clock() - start) * 1000), "snapshot": None,
+                "error": f"{type(e).__name__}: {e}"[:BODY_LIMIT]}
+    ms = round((clock() - start) * 1000)
+    if r.status_code != 200:
+        return {"http": r.status_code, "ms": ms, "snapshot": None, "error": r.text[:BODY_LIMIT]}
+    return {"http": 200, "ms": ms, "snapshot": request_snapshot(r.text), "error": None}
+
+
 def check(cfg: dict | None = None, probes: list[dict] | None = None, *, http_get=requests.get,
           clock=time.monotonic) -> dict:
     cfg = cfg or load_config()
@@ -94,4 +152,7 @@ def check(cfg: dict | None = None, probes: list[dict] | None = None, *, http_get
         res = {"probe": p["name"], "path": p["path"], **_get(base_url(cfg) + p["path"], timeout, http_get, clock),
                "expect_status": p["expect_status"], "expect_body": p.get("expect_body")}
         results.append(res)
-    return {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "health": health, "probes": results}
+    obs = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "health": health, "probes": results}
+    if "metrics" in cfg:
+        obs["metrics"] = scrape(cfg, http_get, clock)
+    return obs

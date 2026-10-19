@@ -102,15 +102,27 @@ def keep_awake() -> None:
 def print_check(obs: dict, fired: list[dict]) -> None:
     h = obs["health"]
     probes = "  ".join(f"{p['probe']}={p['http']}/{p['ms']}ms" for p in obs["probes"])
+    w = obs.get("metrics_window")
+    if w:
+        share = "n/a" if w["share_5xx"] is None else f"{100 * w['share_5xx']:.1f}%"
+        metrics = f"  window {w['window_s']}s: {w['requests']} req, 5xx {share}, p95 {w['p95_ms']}ms"
+    elif "metrics_window" in obs:
+        metrics = "  window: counters reset, skipped"
+    else:
+        metrics = "  window: filling" if obs.get("metrics", {}).get("http") == 200 else "  metrics: unavailable"
     verdict = "ok" if not fired else "BAD: " + ", ".join(f["rule"] for f in fired)
-    print(f"  t={obs['t_s']:>5}s health={h.get('status')}/{h['ms']}ms  {probes}  {verdict}", flush=True)
+    print(f"  t={obs['t_s']:>5}s health={h.get('status')}/{h['ms']}ms  {probes}{metrics}  {verdict}", flush=True)
 
 
-def watch(seconds: float, run_id: str, fault_id: str | None) -> None:
+def watch(seconds: float, run_id: str, fault_id: str | None, use_probes: bool = True) -> None:
     cfg = deploy.load_config()
+    m = cfg["metrics"]
     print(f"detector: poll every {cfg['poll_interval_s']}s for up to {seconds:.0f}s, incident after "
-          f"{cfg['consecutive_failures']} bad checks in a row", flush=True)
-    inc = detector.watch(seconds, run_id=run_id, fault_id=fault_id, on_check=print_check)
+          f"{cfg['consecutive_failures']} bad checks in a row; probes {'on' if use_probes else 'OFF'}; metrics window "
+          f"{m['window_s']}s, min {m['min_requests']} req, 5xx share <= {100 * m['max_5xx_share']:.0f}%, "
+          f"p95 <= {m['max_p95_ms']} ms", flush=True)
+    inc = detector.watch(seconds, run_id=run_id, fault_id=fault_id, on_check=print_check,
+                         probes=None if use_probes else [])
     if inc is None:
         print(f"detector: quiet for {seconds:.0f}s, no incident")
         return
@@ -125,14 +137,14 @@ def watch(seconds: float, run_id: str, fault_id: str | None) -> None:
     print(f"  written to runs/{run_id}/incident.json")
 
 
-def inject_fault(fault: str, seconds: float) -> None:
+def inject_fault(fault: str, seconds: float, use_probes: bool = True) -> None:
     run_id = f"detect-{fault}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}".lower()
     with tempfile.TemporaryDirectory(prefix="autoimmune-fault-") as tmp:
         src = sandbox.prepare_patched_app(fault, None, Path(tmp))
         dep = deploy.deploy(src, run_id)
     print(f"deployed faulty build {dep['new_image']} (previous {dep['previous_image']}), "
           f"answering after {dep['swap_to_answer_s']}s", flush=True)
-    watch(seconds, run_id, fault)
+    watch(seconds, run_id, fault, use_probes)
 
 
 def main() -> None:
@@ -148,15 +160,18 @@ def main() -> None:
                    help="human_cli if you type the answer; human_relayed / scripted_test if it is piped in")
     w = sub.add_parser("watch")
     w.add_argument("seconds", type=float)
+    w.add_argument("--no-probes", action="store_true", help="health + metrics rules only")
     f = sub.add_parser("fault")
     f.add_argument("fault")
     f.add_argument("--watch", type=float, default=30)
+    f.add_argument("--no-probes", action="store_true", help="health + metrics rules only")
     args = ap.parse_args()
     keep_awake()
     if args.cmd == "watch":
-        watch(args.seconds, f"detect-baseline-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}".lower(), None)
+        watch(args.seconds, f"detect-baseline-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}".lower(), None,
+              not args.no_probes)
     elif args.cmd == "fault":
-        inject_fault(args.fault, args.watch)
+        inject_fault(args.fault, args.watch, not args.no_probes)
     elif args.cmd == "baseline":
         print(json.dumps(deploy.start_baseline(), indent=2))
         print(json.dumps(deploy.check_once(deploy.load_config(), deploy.load_probes()), indent=2))
