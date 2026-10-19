@@ -110,13 +110,13 @@ def test_scripted_mode_loads_f06_candidates():
     diag = Diagnosis(causes=[Cause(1, SERVICE, None, "r", "e")], provider_mode="rule")
     patches = get_provider("scripted").draft_patches(diag, sources(), "F06", n=None)
     kinds = [p.candidate_kind for p in patches]
-    assert kinds == ["correct", "insecure", "overfitting", "regressive", "slow"]
+    assert kinds == ["correct", "ineffective", "insecure", "overfitting", "regressive", "slow"]
     for p in patches:
         assert p.provider_mode == "scripted" and p.model is None
         assert p.applies is True, p.apply_error
         assert p.diff == (REPO / "faults/F06/candidates" / f"{p.candidate_kind}.diff").read_text(encoding="utf-8")
         assert p.candidate_kind not in p.candidate_id      # ids stay opaque to the decision engine
-    assert len({p.candidate_id for p in patches}) == 5
+    assert len({p.candidate_id for p in patches}) == 6
     assert len(get_provider("scripted").draft_patches(diag, sources(), "F06")) == 3
 
 

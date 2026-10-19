@@ -21,6 +21,11 @@
       "label": "insecure",
       "status": "draft: team to review",
       "rationale": "Correct fix plus an audit SQL string in OrderController built by concatenating the customer parameter."
+    },
+    "ineffective.diff": {
+      "label": "ineffective",
+      "status": "draft: team to review",
+      "rationale": "Adds management.endpoint.health.show-details=always to application.properties but leaves orders.catalog.enabled=false; /actuator/health stays DOWN."
     }
   }
 }

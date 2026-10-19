@@ -50,6 +50,7 @@ GATE_PLAN = {  # what the fake sandbox reports per scripted file; the orchestrat
     "overfitting": ("pass", "pass", "pass", "pass", []),
     "slow": ("pass", "pass", "pass", "pass", []),
     "regressive": ("pass", "pass", "fail", "not_run", None),
+    "ineffective": ("pass", "fail", "not_run", "not_run", None),
     "insecure": ("pass", "pass", "pass", "fail", [{"rule_id": "sql-string-concatenation", "file": "x", "line": 1,
                                                    "severity": "ERROR"}]),
 }
@@ -80,9 +81,9 @@ def faked(tmp_path, monkeypatch):
         calls.append(("release", run_id))
         slow = "slow" in (Path(src) / "marker").read_text()
         state["image"] = "order-service:faulty" if slow else f"order-service:{run_id}"
-        return ({"deployed": True, "staged": False, "rolled_back": True, "outcome": "rolled_back",
+        return ({"deployed": True, "awaiting_review": False, "rolled_back": True, "outcome": "rolled_back",
                  "reason": "probe took 3015 ms", "recovery_s": 5.0} if slow else
-                {"deployed": True, "staged": False, "rolled_back": False, "outcome": "promoted", "recovery_s": None})
+                {"deployed": True, "awaiting_review": False, "rolled_back": False, "outcome": "promoted", "recovery_s": None})
 
     def fake_prepare(fault, diff, dest, repo=None):
         app = Path(dest) / "app"
@@ -123,13 +124,13 @@ def test_full_run_deploy_each_restores_faulty_build_between_candidates(faked, ca
                  "choice.json", "summary.json"):
         assert (tmp / "runs" / "t1" / name).exists(), name
     by_decision = {r["decision"]: r for r in s["candidates"]}
-    assert sorted(r["decision"] for r in s["candidates"]) == ["AUTO_APPLY"] * 3 + ["REJECT"] * 2
+    assert sorted(r["decision"] for r in s["candidates"]) == ["AUTO_APPLY"] * 3 + ["REJECT"] * 3
     assert {r["result"] for r in s["candidates"] if r["decision"] == "REJECT"} == {"not deployed (REJECT)"}
     assert any(r["result"].startswith("rolled back in 5.0s") for r in s["candidates"])
     assert by_decision["AUTO_APPLY"]["deployed"] is True
-    assert len(rows) == 10                                      # 5 rows, each to results/ and to runs/<id>/
+    assert len(rows) == 12                                      # 6 rows, each to results/ and to runs/<id>/
     deployed = sorted(r["deployed"] for r, p in rows if p is None)
-    assert deployed == [False, False, True, True, True]
+    assert deployed == [False, False, False, True, True, True]
 
 
 def test_failing_step_stops_with_the_real_error_and_restores_baseline(faked, monkeypatch):

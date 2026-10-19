@@ -6,8 +6,15 @@ Rows are validated against EVIDENCE_SCHEMA before writing; an invalid row raises
 additionalProperties is false, so no label or other unexpected field can enter the file.
 candidate_kind is what a scripted candidate was built as (its file name); it is null for live/replay patches.
 Ground-truth labels (labels.json) and hidden-test results are never part of a row.
-deployed / rolled_back / staged / recovery_s are null until deploy.py has acted on the candidate;
-staged means the patch was set aside for human review (ESCALATE) instead of being deployed.
+deployed / rolled_back / awaiting_review / recovery_s are null until deploy.py has acted on the candidate;
+awaiting_review means the patch was set aside for human review (ESCALATE) instead of being deployed.
+("staged" exists only in labels.json: a candidate planted for a demo, e.g. slow.diff.)
+approval_source says who answered approve_cli: "human_cli" (a person typed it at the prompt),
+"human_relayed" (a person decided elsewhere, e.g. in an assistant's question box, and a tool relayed the
+answer) or "scripted_test" (a script supplied the answer); null when no approval was asked.
+Reports keep the three apart and must never count scripted_test approvals as human ones.
+invalid is "observer_suspended" when the health window could not be trusted (host was frozen); analysis
+excludes such rows.
 """
 from __future__ import annotations
 
@@ -40,7 +47,8 @@ EVIDENCE_SCHEMA = {
     "additionalProperties": False,
     "required": ["run_id", "fault_id", "candidate_id", "candidate_kind", "diag_mode", "patch_mode",
                  "oracle_localisation", "v0", "v1", "v2", "v3", "new_findings", "diff_lines", "files_touched",
-                 "tier", "decision", "reasons", "deployed", "rolled_back", "staged", "recovery_s", "timestamp"],
+                 "tier", "decision", "reasons", "deployed", "rolled_back", "awaiting_review", "recovery_s",
+                 "approval_source", "invalid", "timestamp"],
     "properties": {
         "run_id": {"type": "string", "minLength": 1},
         "fault_id": {"type": "string", "pattern": "^F[0-9]{2}$"},
@@ -66,8 +74,10 @@ EVIDENCE_SCHEMA = {
         "reasons": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
         "deployed": _OPT_BOOL,
         "rolled_back": _OPT_BOOL,
-        "staged": _OPT_BOOL,
+        "awaiting_review": _OPT_BOOL,
         "recovery_s": {"type": ["number", "null"], "minimum": 0},
+        "approval_source": {"enum": ["human_cli", "human_relayed", "scripted_test", None]},
+        "invalid": {"enum": ["observer_suspended", None]},
         "timestamp": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"},
     },
 }
@@ -90,8 +100,9 @@ def max_severity(findings: list[dict]) -> str | None:
 
 
 def build_row(*, run_id: str, fault_id: str, gates: dict, diagnosis, patch, patch_meta: dict, decision,
-              deployed: bool | None = None, rolled_back: bool | None = None, staged: bool | None = None,
-              recovery_s: float | None = None, timestamp: str | None = None) -> dict:
+              deployed: bool | None = None, rolled_back: bool | None = None, awaiting_review: bool | None = None,
+              recovery_s: float | None = None, approval: dict | None = None, invalid: str | None = None,
+              timestamp: str | None = None) -> dict:
     g = gates.get("gates", gates)
     findings = (g.get("V3") or {}).get("new_findings")
     d = decision.to_dict() if hasattr(decision, "to_dict") else dict(decision)
@@ -113,8 +124,10 @@ def build_row(*, run_id: str, fault_id: str, gates: dict, diagnosis, patch, patc
         "reasons": list(d["reasons"]),
         "deployed": deployed,
         "rolled_back": rolled_back,
-        "staged": staged,
+        "awaiting_review": awaiting_review,
         "recovery_s": recovery_s,
+        "approval_source": approval.get("approval_source") if approval else None,
+        "invalid": invalid,
         "timestamp": timestamp or datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 

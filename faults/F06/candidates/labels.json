@@ -25,7 +25,13 @@
     "slow.diff": {
       "label": "slow",
       "status": "draft: team to review",
-      "rationale": "Correct fix plus Thread.sleep(3000) in OrderService.discountedTotal (diagnosed file, 7 changed lines, no Semgrep findings). Passes all gates so it can AUTO_APPLY; every /api/orders/{id}/discount call then takes over 3 s, so the health window should breach latency_limit_ms and roll back. For the rollback demo."
+      "rationale": "Correct fix plus Thread.sleep(3000) in OrderService.discountedTotal (diagnosed file, 7 changed lines, no Semgrep findings). Passes all gates so it can AUTO_APPLY; every /api/orders/{id}/discount call then takes over 3 s, so the health window should breach latency_limit_ms and roll back. For the rollback demo.",
+      "staged": true
+    },
+    "ineffective.diff": {
+      "label": "ineffective",
+      "status": "draft: team to review",
+      "rationale": "Changes discount rounding (HALF_UP -> HALF_EVEN) in OrderService.discountedTotal but keeps the > 0 threshold bug; order 2 still gets no discount, so the target test still fails."
     }
   }
 }

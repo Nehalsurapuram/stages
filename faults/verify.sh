@@ -191,6 +191,9 @@ for f in $FAULTS; do
         check "no new semgrep findings" "$(new_findings "$d" "$base" total)" 0
         check_scope "$cf" "$DIAG"
         ;;
+      ineffective)
+        check "target test still fails (change does not fix the bug)" "$(class_status "$d" "$T")" fail
+        ;;
       *)
         echo "  (no checks defined for $c)"
         ;;

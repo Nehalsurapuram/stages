@@ -58,6 +58,9 @@ FAULTS = {
                  "        } catch (InterruptedException e) {\n"
                  "            Thread.currentThread().interrupt();\n"
                  "        }\n")],
+            # Plausible but beside the point: changes rounding, keeps the > 0 boundary bug.
+            "ineffective": [(SVC, "total.multiply(DISCOUNT_FACTOR).setScale(2, RoundingMode.HALF_UP)",
+                             "total.multiply(DISCOUNT_FACTOR).setScale(2, RoundingMode.HALF_EVEN)")],
         },
     },
     "F01": {
@@ -71,6 +74,8 @@ FAULTS = {
                 (SVC, NAME, GUARD
                  + "        String sql = \"SELECT * FROM orders WHERE customer = '\" + customer + \"'\";\n"
                  + "        log.debug(\"search query: {}\", sql);\n" + NAME)],
+            # "Null-safe" comparison reorder; customer.trim() above still dereferences null.
+            "ineffective": [(SVC, "o.customer().equalsIgnoreCase(name)", "name.equalsIgnoreCase(o.customer())")],
         },
     },
     "F04": {
@@ -88,6 +93,10 @@ FAULTS = {
                  "        String sql = \"SELECT * FROM orders WHERE customer = '\" + customer + \"'\";\n"
                  "        log.info(\"audit: {}\", sql);\n"
                  "        return service.searchByCustomer(customer);")],
+            # Shows health details instead of fixing the disabled catalog; health stays DOWN.
+            "ineffective": [(PROPS, "management.endpoints.web.exposure.include=health\n",
+                             "management.endpoints.web.exposure.include=health\n"
+                             "management.endpoint.health.show-details=always\n")],
         },
     },
 }

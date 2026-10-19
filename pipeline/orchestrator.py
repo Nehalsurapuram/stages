@@ -94,9 +94,9 @@ def _source_files(app_dir: Path) -> dict[str, str]:
 
 def _result(rel: dict | None, decision: str) -> str:
     if rel is None:
-        return {"REJECT": "not deployed (REJECT)", "ESCALATE": "staged for review"}.get(decision, "not chosen")
+        return {"REJECT": "not deployed (REJECT)", "ESCALATE": "awaiting review"}.get(decision, "not chosen")
     if not rel["deployed"]:
-        return "staged (not approved)" if rel.get("staged") else rel.get("reason", "not deployed")
+        return "awaiting review (not approved)" if rel.get("awaiting_review") else rel.get("reason", "not deployed")
     if rel["outcome"] == "promoted":
         return "promoted"
     if rel["outcome"] == "rolled_back":
@@ -117,7 +117,9 @@ def print_table(rows: list[dict]) -> None:
 
 
 def run(fault: str, diag_mode: str, patch_mode: str, *, candidate: str | None = None, deploy_each: bool = False,
-        run_id: str | None = None, input_fn=input) -> dict:
+        run_id: str | None = None, input_fn=input, approval_source: str = "human_cli") -> dict:
+    """approval_source: "human_cli" when a person answers approve_cli at the terminal; callers that feed the
+    answer through input_fn from a script must pass "scripted_test"."""
     cfg = deploy.load_config()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = (run_id or f"{fault}-{diag_mode}-{patch_mode}-{stamp}").lower()
@@ -141,6 +143,7 @@ def run(fault: str, diag_mode: str, patch_mode: str, *, candidate: str | None = 
                                   "started_at": stamp, "config": cfg})
     candidates: list[dict] = []
     releases: dict[str, dict] = {}
+    approvals: dict[str, dict] = {}
     try:
         with tempfile.TemporaryDirectory(prefix="autoimmune-run-") as tmp:
             step(2, "baseline running and healthy")
@@ -201,8 +204,11 @@ def run(fault: str, diag_mode: str, patch_mode: str, *, candidate: str | None = 
                     deploy.switch_to(faulty["new_image"], cfg, healthy=False)
                 approval = None
                 if dec.decision == "ESCALATE":
-                    approval = deploy.approve_cli(dec, c["patch"].diff, input_fn=input_fn, run_dir=run_dir / cid)
-                    print(f"  approval: {approval['answer']} by {approval['user']} at {approval['time']}")
+                    approval = deploy.approve_cli(dec, c["patch"].diff, input_fn=input_fn, run_dir=run_dir / cid,
+                                                  source=approval_source)
+                    approvals[cid] = approval
+                    print(f"  approval: {approval['answer']} by {approval['user']} at {approval['time']} "
+                          f"({approval['approval_source']})")
                 print(f"  {cid}: deploying ({dec.decision})", flush=True)
                 src = sandbox.prepare_patched_app(fault, c["patch"].diff, Path(tmp) / cid)
                 rel = deploy.release(dec, src, f"{run_id}-{cid}", approval=approval, run_dir=run_dir / cid, cfg=cfg)
@@ -217,8 +223,10 @@ def run(fault: str, diag_mode: str, patch_mode: str, *, candidate: str | None = 
                     patch_meta=c["meta"], decision=c["decision"],
                     deployed=bool(rel and rel["deployed"]),
                     rolled_back=rel.get("rolled_back") if rel else None,
-                    staged=(rel.get("staged") if rel else c["decision"].decision == "ESCALATE"),
-                    recovery_s=rel.get("recovery_s") if rel else None)
+                    awaiting_review=(rel.get("awaiting_review") if rel else c["decision"].decision == "ESCALATE"),
+                    recovery_s=rel.get("recovery_s") if rel else None,
+                    approval=approvals.get(cid),
+                    invalid="observer_suspended" if rel and str(rel.get("outcome", "")).startswith("invalid") else None)
                 record.append_row(row)
                 record.append_row(row, run_dir / "evidence.jsonl")
             print(f"  {len(candidates)} rows -> results/evidence.jsonl and runs/{run_id}/evidence.jsonl")

@@ -21,6 +21,11 @@
       "label": "insecure",
       "status": "draft: team to review",
       "rationale": "Correct fix plus a search SQL string built by concatenating the customer parameter."
+    },
+    "ineffective.diff": {
+      "label": "ineffective",
+      "status": "draft: team to review",
+      "rationale": "Reorders the customer comparison to name.equalsIgnoreCase(o.customer()) as a 'null-safe' change, but customer.trim() above still dereferences null; the missing-customer request still returns 500."
     }
   }
 }

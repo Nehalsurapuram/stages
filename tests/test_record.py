@@ -50,6 +50,8 @@ def test_valid_row_is_appended_as_one_json_line(tmp_path):
     ({"fault_id": "F6"}, "fault_id"),
     ({"timestamp": "yesterday"}, "timestamp"),
     ({"recovery_s": -1}, "recovery_s"),
+    ({"approval_source": "human"}, "approval_source"),
+    ({"invalid": "maybe"}, "invalid"),
 ])
 def test_invalid_row_is_refused_and_nothing_is_written(tmp_path, bad, where):
     path = tmp_path / "evidence.jsonl"
@@ -72,6 +74,19 @@ def test_v3_without_findings_list_records_null_count():
                     decision={"tier": "high", "decision": "REJECT", "reasons": ["x"]})
     validate_row(row)
     assert row["new_findings"] == {"count": None, "max_severity": None} and row["candidate_kind"] is None
+
+
+@pytest.mark.parametrize("approval, source", [(None, None), ({"answer": "approve", "approval_source": "human_cli"}, "human_cli"),
+                                              ({"answer": "approve", "approval_source": "human_relayed"}, "human_relayed"),
+                                              ({"answer": "approve", "approval_source": "scripted_test"}, "scripted_test")])
+def test_approval_source_and_invalid_are_recorded(approval, source):
+    row = build_row(run_id="r", fault_id="F04", gates=_gates([]), diagnosis={"provider_mode": "rule"},
+                    patch={"candidate_id": "c", "provider_mode": "scripted"},
+                    patch_meta={"files_touched": [], "diff_lines": 1},
+                    decision={"tier": "medium", "decision": "ESCALATE", "reasons": ["x"]},
+                    approval=approval, invalid="observer_suspended")
+    validate_row(row)
+    assert row["approval_source"] == source and row["invalid"] == "observer_suspended"
 
 
 def test_max_severity():

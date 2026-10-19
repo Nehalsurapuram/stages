@@ -181,6 +181,9 @@ try {
                     Check 'no new semgrep findings' (New-Findings $n $base 'Total') 0
                     Check-Scope $cf.FullName $fault.diagnosed_file
                 }
+                'ineffective' {
+                    Check 'target test still fails (change does not fix the bug)' (Class-Status $r $T) 'fail'
+                }
                 default { Write-Host "  (no checks defined for $c)" }
             }
         }

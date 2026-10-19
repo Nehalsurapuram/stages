@@ -265,7 +265,7 @@ def may_deploy(decision, approval: dict | None = None) -> tuple[bool, str]:
     if d == "ESCALATE":
         if approval and approval.get("answer") == "approve":
             return True, f"ESCALATE approved by {approval.get('user')} at {approval.get('time')}"
-        return False, "ESCALATE without an approve record: staged for human review, not deployed"
+        return False, "ESCALATE without an approve record: awaiting human review, not deployed"
     return False, f"{d} candidates are never deployed"
 
 
@@ -276,7 +276,7 @@ def release(decision, patched_source_dir: Path, run_id: str, *, approval: dict |
     run_dir.mkdir(parents=True, exist_ok=True)
     ok, why = may_deploy(decision, approval)
     if not ok:
-        return {"deployed": False, "staged": _decision_dict(decision)["decision"] == "ESCALATE",
+        return {"deployed": False, "awaiting_review": _decision_dict(decision)["decision"] == "ESCALATE",
                 "rolled_back": None, "reason": why, "recovery_s": None}
 
     dep = deploy(patched_source_dir, run_id, cfg)
@@ -300,27 +300,34 @@ def release(decision, patched_source_dir: Path, run_id: str, *, approval: dict |
         record.update(outcome="invalid", invalid=window["invalid"], restored_image=dep["previous_image"],
                       finished_at=_now())
         (run_dir / "deploy.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
-        return {"deployed": True, "staged": False, "rolled_back": None, "outcome": "invalid: observer_suspended",
+        return {"deployed": True, "awaiting_review": False, "rolled_back": None, "outcome": "invalid: observer_suspended",
                 "image": dep["previous_image"], "checks": len(window["checks"]), "recovery_s": None}
     if window["passed"]:
         record.update(outcome="promoted", promoted_image=dep["new_image"], finished_at=_now())
         (run_dir / "deploy.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
-        return {"deployed": True, "staged": False, "rolled_back": False, "outcome": "promoted",
+        return {"deployed": True, "awaiting_review": False, "rolled_back": False, "outcome": "promoted",
                 "image": dep["new_image"], "checks": len(window["checks"]), "recovery_s": None}
 
     rb = rollback(dep["previous_image"], dep["new_image"], window["breach"], window["breach_clock"], cfg)
     record.update(outcome="rolled_back", finished_at=_now())
     (run_dir / "deploy.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     (run_dir / "rollback.json").write_text(json.dumps(rb, indent=2), encoding="utf-8")
-    return {"deployed": True, "staged": False, "rolled_back": True, "outcome": "rolled_back",
+    return {"deployed": True, "awaiting_review": False, "rolled_back": True, "outcome": "rolled_back",
             "image": rb["restored_image"], "reason": rb["reason"], "checks": len(window["checks"]),
             "recovery_s": rb["seconds_breach_to_healthy"]}
 
 
 # --------------------------------------------------------------------------- human approval
 
+APPROVAL_SOURCES = ("human_cli", "human_relayed", "scripted_test")
+
+
 def approve_cli(decision, diff: str, *, input_fn=input, out=print, user: str | None = None,
-                run_dir: Path | None = None, max_tries: int = 3) -> dict:
+                run_dir: Path | None = None, max_tries: int = 3, source: str = "human_cli") -> dict:
+    """source: "human_cli" when a person types the answer here; "human_relayed" when a person decided elsewhere
+    and a tool feeds their answer in; "scripted_test" when a script supplies the answer."""
+    if source not in APPROVAL_SOURCES:
+        raise ValueError(f"approval source must be one of {APPROVAL_SOURCES}, not {source!r}")
     d = _decision_dict(decision)
     out("=" * 72)
     out(f"Decision: {d['decision']}   tier: {d['tier']}   policy: {d.get('policy_version')}")
@@ -340,7 +347,7 @@ def approve_cli(decision, diff: str, *, input_fn=input, out=print, user: str | N
             answer = raw
             break
         out(f"please type 'approve' or 'reject' (got {raw!r})")
-    record = {"answer": answer, "user": user or getpass.getuser(), "time": _now(),
+    record = {"answer": answer, "approval_source": source, "user": user or getpass.getuser(), "time": _now(),
               "decision": d["decision"], "tier": d["tier"], "reasons": d["reasons"]}
     if run_dir:
         Path(run_dir).mkdir(parents=True, exist_ok=True)

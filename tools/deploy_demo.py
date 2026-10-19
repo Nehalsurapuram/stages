@@ -50,7 +50,7 @@ def show_window(run_dir: Path) -> None:
               f"reason: {r['reason']}")
 
 
-def candidate(fault: str, kind: str, gates_run: str) -> None:
+def candidate(fault: str, kind: str, gates_run: str, approval_source: str = "human_cli") -> None:
     patches = {p.candidate_kind: p for p in get_provider("scripted").draft_patches(None, {}, fault, n=None)}
     patch = patches[kind]
     index = json.loads((REPO / "runs" / gates_run / "index.json").read_text(encoding="utf-8"))
@@ -72,7 +72,7 @@ def candidate(fault: str, kind: str, gates_run: str) -> None:
 
     approval = None
     if decision.decision == "ESCALATE":
-        approval = deploy.approve_cli(decision, patch.diff, run_dir=run_dir)
+        approval = deploy.approve_cli(decision, patch.diff, run_dir=run_dir, source=approval_source)
         print(f"approval: {approval['answer']} by {approval['user']} at {approval['time']}")
 
     with tempfile.TemporaryDirectory(prefix="autoimmune-deploy-") as tmp:
@@ -84,8 +84,8 @@ def candidate(fault: str, kind: str, gates_run: str) -> None:
 
     row = record.build_row(run_id=run_id, fault_id=fault, gates=gates, diagnosis=diagnosis, patch=patch,
                            patch_meta=meta, decision=decision, deployed=result["deployed"],
-                           rolled_back=result.get("rolled_back"), staged=result.get("staged"),
-                           recovery_s=result.get("recovery_s"))
+                           rolled_back=result.get("rolled_back"), awaiting_review=result.get("awaiting_review"),
+                           recovery_s=result.get("recovery_s"), approval=approval)
     record.append_row(row)
     print(f"evidence row appended to {record.EVIDENCE_PATH.relative_to(REPO)}")
 
@@ -144,6 +144,8 @@ def main() -> None:
     c.add_argument("fault")
     c.add_argument("kind")
     c.add_argument("--gates-run", required=True)
+    c.add_argument("--approval-source", default="human_cli", choices=deploy.APPROVAL_SOURCES,
+                   help="human_cli if you type the answer; human_relayed / scripted_test if it is piped in")
     w = sub.add_parser("watch")
     w.add_argument("seconds", type=float)
     f = sub.add_parser("fault")
@@ -162,7 +164,7 @@ def main() -> None:
         deploy.record_probes()
         print((REPO / "config" / "probes.yaml").read_text(encoding="utf-8"))
     else:
-        candidate(args.fault, args.kind, args.gates_run)
+        candidate(args.fault, args.kind, args.gates_run, args.approval_source)
 
 
 if __name__ == "__main__":

@@ -165,7 +165,7 @@ def test_may_deploy(decision, approval, allowed):
 def test_release_never_deploys_without_permission(tmp_path, monkeypatch, decision):
     monkeypatch.setattr(deploy, "deploy", lambda *a, **k: pytest.fail("deploy must not be called"))
     res = deploy.release(decision, tmp_path, "r", run_dir=tmp_path, cfg=CFG)
-    assert res["deployed"] is False and res["staged"] is (decision is ESC)
+    assert res["deployed"] is False and res["awaiting_review"] is (decision is ESC)
     assert not (tmp_path / "deploy.json").exists()
 
 
@@ -226,8 +226,16 @@ def test_approve_cli_records_answer_user_and_time(tmp_path, answers, expected):
     rec = deploy.approve_cli(ESC, "--- a/x\n+++ b/x\n", input_fn=_ask(answers), out=shown.append,
                              user="tester", run_dir=tmp_path)
     assert rec["answer"] == expected and rec["user"] == "tester" and rec["time"].endswith("+00:00")
+    assert rec["approval_source"] == "human_cli"
     assert "--- a/x\n+++ b/x" in shown and any("diff touches a sensitive path" in s for s in shown)
     assert json.loads((tmp_path / "approval.json").read_text(encoding="utf-8")) == rec
+
+
+def test_approve_cli_records_scripted_source_and_refuses_unknown_ones(tmp_path):
+    rec = deploy.approve_cli(ESC, "d", input_fn=_ask(["approve"]), out=lambda s: None, source="scripted_test")
+    assert rec["approval_source"] == "scripted_test"
+    with pytest.raises(ValueError, match="approval source"):
+        deploy.approve_cli(ESC, "d", input_fn=_ask(["approve"]), out=lambda s: None, source="human")
 
 
 def test_image_tags_are_valid_docker_tags():
