@@ -21,11 +21,12 @@ import re
 import subprocess
 import time
 from datetime import datetime, timezone
-from decimal import Decimal
 from pathlib import Path
 
 import requests
 import yaml
+
+from pipeline.observe import same_value
 
 REPO = Path(__file__).resolve().parents[1]
 APP_CONTAINER = "autoimmune-app"
@@ -118,11 +119,7 @@ def wait_until(cfg: dict, healthy: bool, timeout: float = STARTUP_TIMEOUT_S, htt
     raise DeployError(f"{APP_CONTAINER} not {'healthy' if healthy else 'answering'} after {timeout:.0f}s")
 
 
-def _same_body(expected: str, actual: str) -> bool:
-    try:
-        return json.loads(expected, parse_float=Decimal) == json.loads(actual, parse_float=Decimal)
-    except ValueError:
-        return expected.strip() == actual.strip()
+_same_body = same_value
 
 
 def check_once(cfg: dict, probes: list[dict], http_get=requests.get) -> dict:
@@ -136,7 +133,8 @@ def check_once(cfg: dict, probes: list[dict], http_get=requests.get) -> dict:
         try:
             r = http_get(base_url(cfg) + p["path"], timeout=max(5.0, 2.5 * limit / 1000))
             ms = round((time.monotonic() - start) * 1000)
-            body_ok = r.status_code == p["expect_status"] and _same_body(p["expect_body"], r.text)
+            body_ok = r.status_code == p["expect_status"] and (
+                p.get("expect_body") is None or _same_body(p["expect_body"], r.text))
             res = {"probe": p["name"], "http": r.status_code, "ms": ms, "body_ok": body_ok,
                    "latency_ok": ms < limit, "body": r.text[:200]}
         except requests.RequestException as e:
@@ -145,7 +143,8 @@ def check_once(cfg: dict, probes: list[dict], http_get=requests.get) -> dict:
                    "error": type(e).__name__}
         if not res["body_ok"]:
             breaches.append(f"probe {p['name']} returned http={res['http']} body={res.get('body', res.get('error'))!r}, "
-                            f"expected http={p['expect_status']} body={p['expect_body']!r}")
+                            f"expected http={p['expect_status']}"
+                            + (f" body={p['expect_body']!r}" if p.get("expect_body") is not None else ""))
         if not res["latency_ok"]:
             breaches.append(f"probe {p['name']} took {res['ms']} ms, limit {limit} ms")
         results.append(res)
@@ -184,10 +183,12 @@ def start_baseline(repo: Path = REPO, cfg: dict | None = None) -> dict:
             "build_s": round(build_s, 1), "startup_s": round(startup_s, 1)}
 
 
-PROBE_PATHS = [
-    ("order1-total", "/api/orders/1/total"),
-    ("order2-discount-at-threshold", "/api/orders/2/discount"),
-    ("search-alice", "/api/orders/search?customer=alice"),
+PROBE_PATHS = [  # (name, path, compare body?)
+    ("order1-total", "/api/orders/1/total", True),
+    ("order2-discount-at-threshold", "/api/orders/2/discount", True),
+    ("search-alice", "/api/orders/search?customer=alice", True),
+    # Healthy answer is 400; its error body carries a timestamp, so only the status is compared.
+    ("search-no-customer", "/api/orders/search", False),
 ]
 
 
@@ -197,9 +198,12 @@ def record_probes(repo: Path = REPO, cfg: dict | None = None, http_get=requests.
     if current_image() != BASELINE_TAG:
         raise DeployError(f"record_probes must run against {BASELINE_TAG}, not {current_image()}")
     probes = []
-    for name, path in PROBE_PATHS:
+    for name, path, with_body in PROBE_PATHS:
         r = http_get(base_url(cfg) + path, timeout=10)
-        probes.append({"name": name, "path": path, "expect_status": r.status_code, "expect_body": r.text})
+        probe = {"name": name, "path": path, "expect_status": r.status_code}
+        if with_body:
+            probe["expect_body"] = r.text
+        probes.append(probe)
     header = (f"# Health-window probes. Expected values recorded from the healthy app ({BASELINE_TAG}) on {_now()}\n"
               "# by pipeline.deploy.record_probes(). Bodies are compared as JSON (exact decimals) or as text.\n")
     (Path(repo) / "config" / "probes.yaml").write_text(
