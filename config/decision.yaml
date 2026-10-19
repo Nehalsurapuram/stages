@@ -7,3 +7,10 @@ consecutive_failures: 2
 sensitive_paths:
   - "application.properties"
   - "security/"
+# Sandbox: timeout per gate container, in seconds (V3 applies it to each of its two Semgrep scans).
+# A timeout is never a pass.
+gate_timeouts_s:
+  V0: 300
+  V1: 300
+  V2: 600
+  V3: 300

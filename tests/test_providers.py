@@ -72,6 +72,7 @@ def test_rule_mode_uses_top_app_frame_of_stack_trace():
                                           "stack_trace": NPE_TRACE}, sources())
     assert diag.provider_mode == "rule"
     assert diag.model is None
+    assert diag.oracle_localisation is False
     top = diag.causes[0]
     assert (top.rank, top.file, top.line) == (1, SERVICE, 46)
     assert "NullPointerException" in top.evidence and "searchByCustomer" in top.reason
@@ -83,6 +84,8 @@ def test_rule_mode_probe_incident_falls_back_to_fault_json():
     incident = {"kind": "probe_mismatch", "fault_id": "F06", "endpoint": "/api/orders/2/discount",
                 "status": 200, "expected": "900.00", "actual": "1000.00"}
     diag = get_provider("rule").diagnose(incident, sources())
+    assert diag.oracle_localisation is True
+    assert diag.to_dict()["oracle_localisation"] is True
     assert len(diag.causes) == 1
     cause = diag.causes[0]
     assert (cause.rank, cause.file, cause.line) == (1, SERVICE, None)
@@ -92,6 +95,7 @@ def test_rule_mode_probe_incident_falls_back_to_fault_json():
 
 def test_rule_mode_health_down_uses_config_file():
     diag = get_provider("rule").diagnose({"kind": "health_down", "fault_id": "F04", "status": 503}, {})
+    assert diag.oracle_localisation is True
     assert diag.causes[0].file == "app/src/main/resources/application.properties"
 
 

@@ -69,6 +69,7 @@ class Diagnosis:
     provider_mode: str
     model: str | None = None
     attempts: list[dict] = field(default_factory=list)
+    oracle_localisation: bool = False   # rule mode from fault.json diagnosed_file (ground truth), not from evidence
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -176,9 +177,9 @@ class RuleProvider:
         for path in source_files:
             _assert_allowed(path)
         causes = self._from_stack_trace(incident.get("stack_trace") or "", source_files)
-        if not causes:
-            causes = self._from_fault(incident)
-        return Diagnosis(causes=causes, provider_mode=self.mode)
+        if causes:
+            return Diagnosis(causes=causes, provider_mode=self.mode)
+        return Diagnosis(causes=self._from_fault(incident), provider_mode=self.mode, oracle_localisation=True)
 
     def _from_stack_trace(self, trace: str, source_files: dict[str, str]) -> list[Cause]:
         # Deepest section (root cause) that has application frames.
