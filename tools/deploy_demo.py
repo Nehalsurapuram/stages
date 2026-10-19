@@ -19,7 +19,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from pipeline import deploy, record, sandbox  # noqa: E402
+from pipeline import deploy, detector, record, sandbox  # noqa: E402
 from pipeline.decide import decide, patch_meta  # noqa: E402
 from pipeline.providers import get_provider  # noqa: E402
 
@@ -90,6 +90,51 @@ def candidate(fault: str, kind: str, gates_run: str) -> None:
     print(f"evidence row appended to {record.EVIDENCE_PATH.relative_to(REPO)}")
 
 
+def keep_awake() -> None:
+    """Ask Windows not to idle-sleep while this process runs (a suspended host fakes health breaches).
+    Process-scoped: no power setting is changed, and the request ends when the process exits."""
+    if sys.platform == "win32":
+        import ctypes
+        ES_CONTINUOUS, ES_SYSTEM_REQUIRED, ES_DISPLAY_REQUIRED = 0x80000000, 0x00000001, 0x00000002
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+
+
+def print_check(obs: dict, fired: list[dict]) -> None:
+    h = obs["health"]
+    probes = "  ".join(f"{p['probe']}={p['http']}/{p['ms']}ms" for p in obs["probes"])
+    verdict = "ok" if not fired else "BAD: " + ", ".join(f["rule"] for f in fired)
+    print(f"  t={obs['t_s']:>5}s health={h.get('status')}/{h['ms']}ms  {probes}  {verdict}", flush=True)
+
+
+def watch(seconds: float, run_id: str, fault_id: str | None) -> None:
+    cfg = deploy.load_config()
+    print(f"detector: poll every {cfg['poll_interval_s']}s for up to {seconds:.0f}s, incident after "
+          f"{cfg['consecutive_failures']} bad checks in a row", flush=True)
+    inc = detector.watch(seconds, run_id=run_id, fault_id=fault_id, on_check=print_check)
+    if inc is None:
+        print(f"detector: quiet for {seconds:.0f}s, no incident")
+        return
+    print(f"INCIDENT  rule={inc['rule']}  kind={inc['kind']}  endpoint={inc['endpoint']}  status={inc['status']}")
+    print(f"  expected={inc['expected']!r}  actual={str(inc['actual'])[:120]!r}")
+    for e in inc["evidence"]:
+        print(f"  evidence: {e[:200]}")
+    if inc["stack_trace"]:
+        print(f"  stack trace (from {inc['stack_trace_source']}):")
+        for line in inc["stack_trace"].splitlines()[:8]:
+            print(f"    {line[:180]}")
+    print(f"  written to runs/{run_id}/incident.json")
+
+
+def inject_fault(fault: str, seconds: float) -> None:
+    run_id = f"detect-{fault}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}".lower()
+    with tempfile.TemporaryDirectory(prefix="autoimmune-fault-") as tmp:
+        src = sandbox.prepare_patched_app(fault, None, Path(tmp))
+        dep = deploy.deploy(src, run_id)
+    print(f"deployed faulty build {dep['new_image']} (previous {dep['previous_image']}), "
+          f"answering after {dep['swap_to_answer_s']}s", flush=True)
+    watch(seconds, run_id, fault)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -99,8 +144,18 @@ def main() -> None:
     c.add_argument("fault")
     c.add_argument("kind")
     c.add_argument("--gates-run", required=True)
+    w = sub.add_parser("watch")
+    w.add_argument("seconds", type=float)
+    f = sub.add_parser("fault")
+    f.add_argument("fault")
+    f.add_argument("--watch", type=float, default=30)
     args = ap.parse_args()
-    if args.cmd == "baseline":
+    keep_awake()
+    if args.cmd == "watch":
+        watch(args.seconds, f"detect-baseline-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}".lower(), None)
+    elif args.cmd == "fault":
+        inject_fault(args.fault, args.watch)
+    elif args.cmd == "baseline":
         print(json.dumps(deploy.start_baseline(), indent=2))
         print(json.dumps(deploy.check_once(deploy.load_config(), deploy.load_probes()), indent=2))
     elif args.cmd == "record-probes":

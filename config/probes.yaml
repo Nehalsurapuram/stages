@@ -1,2 +1,17 @@
-# Health-window probes: request + expected response. None defined yet.
-[]
+# Health-window probes. Expected values recorded from the healthy app (order-service:baseline) on 2026-10-19T14:05:31+00:00
+# by pipeline.deploy.record_probes(). Bodies are compared as JSON (exact decimals) or as text.
+- name: order1-total
+  path: /api/orders/1/total
+  expect_status: 200
+  expect_body: '950.00'
+- name: order2-discount-at-threshold
+  path: /api/orders/2/discount
+  expect_status: 200
+  expect_body: '900.00'
+- name: search-alice
+  path: /api/orders/search?customer=alice
+  expect_status: 200
+  expect_body: '[{"id":1,"customer":"alice","items":[{"name":"Laptop","price":899.00,"qty":1},{"name":"Mouse","price":25.50,"qty":2}]},{"id":3,"customer":"alice","items":[{"name":"Phone","price":650.00,"qty":2},{"name":"Case","price":15.00,"qty":1}]}]'
+- name: search-no-customer
+  path: /api/orders/search
+  expect_status: 400

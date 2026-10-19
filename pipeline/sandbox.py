@@ -199,12 +199,15 @@ def new_findings(baseline: list[dict], patched: list[dict]) -> list[dict]:
     return new
 
 
-def prepare_patched_app(fault_id: str, diff: str, dest: Path, repo: Path = REPO) -> Path:
-    """dest/app = app/ + inject.diff + candidate diff: a buildable source tree for deploy.py. Returns dest/app."""
+def prepare_patched_app(fault_id: str, diff: str | None, dest: Path, repo: Path = REPO) -> Path:
+    """dest/app = app/ + inject.diff (+ candidate diff): a buildable source tree for deploy.py. Returns dest/app.
+    diff=None gives the faulty build (fault injected, no fix), used to trigger the detector."""
     dest = Path(dest)
     _copy_tree(Path(repo) / "app", dest / "app")
     inject = (Path(repo) / "faults" / fault_id / "inject.diff").read_text(encoding="utf-8")
     for label, d in (("inject.diff", inject), ("candidate diff", diff)):
+        if d is None:
+            continue
         r = _git_apply(dest, d, check=False)
         if r.returncode != 0:
             raise SandboxError(f"{label} does not apply: {r.stderr.strip()}")

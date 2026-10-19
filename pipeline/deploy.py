@@ -309,7 +309,7 @@ def approve_cli(decision, diff: str, *, input_fn=input, out=print, user: str | N
     answer = "no_answer"
     for _ in range(max_tries):
         try:
-            raw = input_fn("approve / reject: ").strip().lower()
+            raw = input_fn("approve / reject: ").lstrip("﻿").strip().lower()   # BOM: PowerShell 5.1 pipes add one
         except EOFError:
             break
         if raw in ("approve", "reject"):

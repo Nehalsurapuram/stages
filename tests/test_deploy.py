@@ -167,7 +167,8 @@ def _ask(answers):
     return input_fn
 
 
-@pytest.mark.parametrize("answers, expected", [(["approve"], "approve"), (["maybe", " Reject "], "reject"), ([], "no_answer")])
+@pytest.mark.parametrize("answers, expected", [(["approve"], "approve"), (["maybe", " Reject "], "reject"), ([], "no_answer"),
+                                               (["﻿approve"], "approve")])
 def test_approve_cli_records_answer_user_and_time(tmp_path, answers, expected):
     shown = []
     rec = deploy.approve_cli(ESC, "--- a/x\n+++ b/x\n", input_fn=_ask(answers), out=shown.append,

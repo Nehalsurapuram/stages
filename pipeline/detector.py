@@ -121,7 +121,8 @@ def build_incident(bad: list[tuple[dict, list[dict]]], cfg: dict, run_id: str, f
 
 def watch(timeout_s: float, *, run_id: str | None = None, fault_id: str | None = None, cfg: dict | None = None,
           probes: list[dict] | None = None, http_get=requests.get, clock=time.monotonic, sleep=time.sleep,
-          logs_fn=docker_logs, runs_dir: Path | None = None) -> dict | None:
+          logs_fn=docker_logs, runs_dir: Path | None = None, on_check=None) -> dict | None:
+    """on_check(obs, fired) is called after every poll (progress output); it cannot change the result."""
     cfg = cfg or observe.load_config()
     probes = observe.load_probes() if probes is None else probes
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -131,6 +132,8 @@ def watch(timeout_s: float, *, run_id: str | None = None, fault_id: str | None =
         obs = observe.check(cfg, probes, http_get=http_get)
         obs["t_s"] = round(clock() - start, 1)
         fired = evaluate(obs, cfg)
+        if on_check:
+            on_check(obs, fired)
         bad = bad + [(obs, fired)] if fired else []
         if len(bad) >= needed:
             incident = build_incident(bad, cfg, run_id, fault_id, logs_fn)
