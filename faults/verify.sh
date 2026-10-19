@@ -3,7 +3,7 @@
 # Maven runs inside Docker, offline (--network none, mvn -o), using the autoimmune-m2 volume.
 # This is a labelling tool: it uses hidden_tests/, which the pipeline must never use.
 #
-# Usage: faults/verify.sh [F06 F01 F04 ...]
+# Usage: bash faults/verify.sh [F06 F01 F04 ...]
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -13,6 +13,7 @@ M2_VOLUME=autoimmune-m2
 TEST_DIR=app/src/test/java/com/autoimmune/orders
 FAULTS=${*:-F06 F01 F04}
 EXISTING=$(cd "$ROOT/$TEST_DIR" && ls *.java | sed 's/\.java$//')
+MAX_DIFF=$(sed -nE 's/^max_diff_lines:[[:space:]]*([0-9]+).*/\1/p' "$ROOT/config/decision.yaml")
 
 hostpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else echo "$1"; fi; }
 # Git Bash: stop docker's /src style container paths being rewritten (only for docker; git needs the conversion).
@@ -79,14 +80,28 @@ group_status() {
   if [ $any_fail -eq 1 ]; then echo fail; else echo pass; fi
 }
 
-# semgrep_errors DIR -> number of ERROR-severity findings in production code, or "error"
-semgrep_errors() {
-  local out
-  out=$(dockerx run --rm --network none -v "$(hostpath "$1/app"):/src:ro" -v "$(hostpath "$ROOT/config"):/rules:ro" \
-    "$SEMGREP_IMAGE" semgrep scan --config /rules/semgrep.yml --severity ERROR --metrics=off \
-    --disable-version-check --quiet --json /src/src/main/java 2>/dev/null) || { echo error; return; }
-  echo "$out" | grep -o '"check_id"' | wc -l | tr -d ' '
+# semgrep_scan DIR: writes DIR/semgrep.json; returns non-zero on tool error
+semgrep_scan() {
+  dockerx run --rm --network none -v "$(hostpath "$1/app"):/src:ro" -v "$(hostpath "$ROOT/config"):/rules:ro" \
+    "$SEMGREP_IMAGE" semgrep scan --config /rules/semgrep.yml --metrics=off \
+    --disable-version-check --quiet --json /src/src/main/java > "$1/semgrep.json" 2>/dev/null
 }
+# findings DIR total|error -> count, or "error"
+findings() {
+  [ -s "$1/semgrep.json" ] || { echo error; return; }
+  if [ "$2" = error ]; then
+    grep -oE '"severity": ?"ERROR"' "$1/semgrep.json" | wc -l | tr -d ' '
+  else
+    grep -o '"check_id"' "$1/semgrep.json" | wc -l | tr -d ' '
+  fi
+}
+# new_findings DIR BASEDIR total|error -> difference, or "error"
+new_findings() {
+  local n b
+  n=$(findings "$1" "$3"); b=$(findings "$2" "$3")
+  if [ "$n" = error ] || [ "$b" = error ]; then echo error; else echo $((n - b)); fi
+}
+show_findings() { echo "  semgrep findings${2:-}: $(findings "$1" error) ERROR, $(findings "$1" total) total"; }
 
 check() {  # check DESCRIPTION ACTUAL EXPECTED
   if [ "$2" = "$3" ]; then
@@ -94,6 +109,17 @@ check() {  # check DESCRIPTION ACTUAL EXPECTED
   else
     echo "  FAIL  $1 (got: $2, expected: $3)"; FAILED=$((FAILED + 1))
   fi
+}
+
+# check_scope DIFF DIAGNOSED: AUTO_APPLY scope rules (only the diagnosed file, within max_diff_lines)
+check_scope() {
+  local files changed inside=false
+  files=$(grep -E '^diff --git a/' "$1" | sed -E 's#^diff --git a/([^ ]+) b/.*#\1#')
+  changed=$(grep -E '^[+-]' "$1" | grep -vcE '^(\+\+\+|---) (a/|b/|/dev/null)')
+  if [ -n "$files" ] && [ -z "$(echo "$files" | grep -vxF "$2")" ]; then inside=true; fi
+  check "diff touches only the diagnosed file ($(echo $files))" "$inside" true
+  [ "$changed" -le "$MAX_DIFF" ] && within=true || within=false
+  check "diff within max_diff_lines ($changed <= $MAX_DIFF)" "$within" true
 }
 
 echo "== healthy app with all target and hidden tests =="
@@ -110,17 +136,19 @@ fi
 for f in $FAULTS; do
   T=${f}TargetTest
   H=${f}HiddenTest
+  FJ=$ROOT/faults/$f/fault.json
+  DIAG=$(grep -o '"diagnosed_file": "[^"]*"' "$FJ" | cut -d'"' -f4)
   echo
-  echo "== $f: $(grep -o '"description": "[^"]*"' "$ROOT/faults/$f/fault.json" | cut -d'"' -f4) =="
+  echo "== $f: $(grep -o '"description": "[^"]*"' "$FJ" | cut -d'"' -f4) =="
 
   echo "[inject]"
-  d=$WORK/$f-inject
-  base=error
-  if prepare "$d" "$f"; then
-    run_tests "$d"
-    check "target test fails after inject.diff" "$(class_status "$d" "$T")" fail
-    base=$(semgrep_errors "$d")
-    echo "  semgrep ERROR findings (baseline): $base"
+  base=$WORK/$f-inject
+  if prepare "$base" "$f"; then
+    run_tests "$base"
+    check "target test fails after inject.diff" "$(class_status "$base" "$T")" fail
+    check "existing suite (V2) still passes under inject.diff alone ($(echo $EXISTING | tr ' ' ','))" "$(group_status "$base" $EXISTING)" pass
+    semgrep_scan "$base"
+    show_findings "$base" " (baseline)"
   else
     check "inject.diff applies" no yes
   fi
@@ -128,6 +156,7 @@ for f in $FAULTS; do
   for c in $(cd "$ROOT/faults/$f/candidates" && ls *.diff | sed 's/\.diff$//'); do
     echo "[$c]"
     d=$WORK/$f-$c
+    cf=$ROOT/faults/$f/candidates/$c.diff
     if ! prepare "$d" "$f" "$c"; then check "$c.diff applies on top of inject.diff" no yes; continue; fi
     run_tests "$d"
     case $c in
@@ -135,8 +164,9 @@ for f in $FAULTS; do
         check "target test passes" "$(class_status "$d" "$T")" pass
         check "hidden tests pass" "$(class_status "$d" "$H")" pass
         check "existing tests pass" "$(group_status "$d" $EXISTING)" pass
-        n=$(semgrep_errors "$d"); echo "  semgrep ERROR findings: $n"
-        check "no new semgrep ERROR findings" "$n" "$base"
+        semgrep_scan "$d"; show_findings "$d"
+        check "no new semgrep findings" "$(new_findings "$d" "$base" total)" 0
+        check_scope "$cf" "$DIAG"
         ;;
       overfitting)
         check "target test passes" "$(class_status "$d" "$T")" pass
@@ -148,14 +178,18 @@ for f in $FAULTS; do
         ;;
       insecure)
         check "all tests pass" "$(group_status "$d" "$T" "$H" $EXISTING)" pass
-        n=$(semgrep_errors "$d"); echo "  semgrep ERROR findings: $n"
-        if [ "$n" != error ] && [ "$base" != error ] && [ "$n" -gt "$base" ]; then new=yes; else new=no; fi
-        check "new semgrep ERROR finding" "$new" yes
+        semgrep_scan "$d"; show_findings "$d"
+        n=$(new_findings "$d" "$base" error)
+        if [ "$n" != error ] && [ "$n" -gt 0 ]; then new=true; else new=false; fi
+        check "new semgrep ERROR finding" "$new" true
         ;;
       slow)
-        check "all tests pass" "$(group_status "$d" "$T" "$H" $EXISTING)" pass
-        grep -q 'Thread.sleep(3000)' "$ROOT/faults/$f/candidates/$c.diff" && s=yes || s=no
+        check "all tests pass (target, hidden, existing)" "$(group_status "$d" "$T" "$H" $EXISTING)" pass
+        grep -q 'Thread.sleep(3000)' "$cf" && s=yes || s=no
         check "diff adds Thread.sleep(3000)" "$s" yes
+        semgrep_scan "$d"; show_findings "$d"
+        check "no new semgrep findings" "$(new_findings "$d" "$base" total)" 0
+        check_scope "$cf" "$DIAG"
         ;;
       *)
         echo "  (no checks defined for $c)"

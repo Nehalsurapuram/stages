@@ -12,6 +12,7 @@ $SemgrepImage = 'semgrep/semgrep:1.100.0'
 $M2Volume = 'autoimmune-m2'
 $TestDir = 'app\src\test\java\com\autoimmune\orders'
 $Existing = @(Get-ChildItem (Join-Path $Root $TestDir) -Filter *.java | ForEach-Object { $_.BaseName })
+$MaxDiff = [int](Select-String -Path (Join-Path $Root 'config\decision.yaml') -Pattern '^max_diff_lines:\s*(\d+)').Matches[0].Groups[1].Value
 $Work = Join-Path ([IO.Path]::GetTempPath()) ('autoimmune-verify-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $script:Passed = 0
 $script:Failed = 0
@@ -81,13 +82,21 @@ function Group-Status($Results, [string[]]$Classes) {
     if ($anyFail) { return 'fail' } else { return 'pass' }
 }
 
-# Number of ERROR-severity findings in production code, or 'error'.
-function Semgrep-Errors([string]$Dir) {
+# Semgrep findings in production code: @{ Error = n; Total = n }, or $null on tool error.
+function Semgrep-Findings([string]$Dir) {
     $out = & docker run --rm --network none -v "$(Join-Path $Dir 'app'):/src:ro" -v "$(Join-Path $Root 'config'):/rules:ro" `
-        $SemgrepImage semgrep scan --config /rules/semgrep.yml --severity ERROR --metrics=off `
+        $SemgrepImage semgrep scan --config /rules/semgrep.yml --metrics=off `
         --disable-version-check --quiet --json /src/src/main/java 2> $null
-    if ($LASTEXITCODE -ne 0) { return 'error' }
-    try { return @(($out -join "`n" | ConvertFrom-Json).results).Count } catch { return 'error' }
+    if ($LASTEXITCODE -ne 0) { return $null }
+    try { $res = @(($out -join "`n" | ConvertFrom-Json).results) } catch { return $null }
+    return @{ Error = @($res | Where-Object { $_.extra.severity -eq 'ERROR' }).Count; Total = $res.Count }
+}
+
+function Format-Findings($s) { if ($null -eq $s) { 'error' } else { "$($s.Error) ERROR, $($s.Total) total" } }
+
+function New-Findings($s, $Base, [string]$Key) {
+    if ($null -eq $s -or $null -eq $Base) { return 'error' }
+    return $s[$Key] - $Base[$Key]
 }
 
 function Check([string]$Description, $Actual, $Expected) {
@@ -96,6 +105,16 @@ function Check([string]$Description, $Actual, $Expected) {
     } else {
         Write-Host "  FAIL  $Description (got: $Actual, expected: $Expected)"; $script:Failed++
     }
+}
+
+# AUTO_APPLY scope rules: the diff touches only the diagnosed file and stays within max_diff_lines.
+function Check-Scope([string]$DiffPath, [string]$Diagnosed) {
+    $lines = Get-Content $DiffPath
+    $files = @($lines | ForEach-Object { if ($_ -match '^diff --git a/(\S+) b/') { $Matches[1] } })
+    $changed = @($lines | Where-Object { $_ -match '^[+-]' -and $_ -notmatch '^(\+\+\+|---) (a/|b/|/dev/null)' }).Count
+    $inside = ($files.Count -gt 0) -and (@($files | Where-Object { $_ -ne $Diagnosed }).Count -eq 0)
+    Check "diff touches only the diagnosed file ($($files -join ', '))" $inside $true
+    Check "diff within max_diff_lines ($changed <= $MaxDiff)" ($changed -le $MaxDiff) $true
 }
 
 try {
@@ -116,12 +135,13 @@ try {
 
         Write-Host '[inject]'
         $d = Join-Path $Work "$f-inject"
-        $base = 'error'
+        $base = $null
         if (Prepare $d $f) {
             $r = Run-Tests $d
             Check 'target test fails after inject.diff' (Class-Status $r $T) 'fail'
-            $base = Semgrep-Errors $d
-            Write-Host "  semgrep ERROR findings (baseline): $base"
+            Check "existing suite (V2) still passes under inject.diff alone ($($Existing -join ', '))" (Group-Status $r $Existing) 'pass'
+            $base = Semgrep-Findings $d
+            Write-Host "  semgrep findings (baseline): $(Format-Findings $base)"
         } else { Check 'inject.diff applies' 'no' 'yes' }
 
         foreach ($cf in Get-ChildItem (Join-Path $Root "faults\$f\candidates") -Filter *.diff | Sort-Object Name) {
@@ -135,8 +155,9 @@ try {
                     Check 'target test passes' (Class-Status $r $T) 'pass'
                     Check 'hidden tests pass' (Class-Status $r $H) 'pass'
                     Check 'existing tests pass' (Group-Status $r $Existing) 'pass'
-                    $n = Semgrep-Errors $d; Write-Host "  semgrep ERROR findings: $n"
-                    Check 'no new semgrep ERROR findings' $n $base
+                    $n = Semgrep-Findings $d; Write-Host "  semgrep findings: $(Format-Findings $n)"
+                    Check 'no new semgrep findings' (New-Findings $n $base 'Total') 0
+                    Check-Scope $cf.FullName $fault.diagnosed_file
                 }
                 'overfitting' {
                     Check 'target test passes' (Class-Status $r $T) 'pass'
@@ -148,14 +169,17 @@ try {
                 }
                 'insecure' {
                     Check 'all tests pass' (Group-Status $r (@($T, $H) + $Existing)) 'pass'
-                    $n = Semgrep-Errors $d; Write-Host "  semgrep ERROR findings: $n"
-                    $new = if ($n -ne 'error' -and $base -ne 'error' -and [int]$n -gt [int]$base) { 'yes' } else { 'no' }
-                    Check 'new semgrep ERROR finding' $new 'yes'
+                    $n = Semgrep-Findings $d; Write-Host "  semgrep findings: $(Format-Findings $n)"
+                    $new = New-Findings $n $base 'Error'
+                    Check 'new semgrep ERROR finding' ("$new" -ne 'error' -and [int]$new -gt 0) $true
                 }
                 'slow' {
-                    Check 'all tests pass' (Group-Status $r (@($T, $H) + $Existing)) 'pass'
+                    Check 'all tests pass (target, hidden, existing)' (Group-Status $r (@($T, $H) + $Existing)) 'pass'
                     $s = if (Select-String -Path $cf.FullName -SimpleMatch 'Thread.sleep(3000)' -Quiet) { 'yes' } else { 'no' }
                     Check 'diff adds Thread.sleep(3000)' $s 'yes'
+                    $n = Semgrep-Findings $d; Write-Host "  semgrep findings: $(Format-Findings $n)"
+                    Check 'no new semgrep findings' (New-Findings $n $base 'Total') 0
+                    Check-Scope $cf.FullName $fault.diagnosed_file
                 }
                 default { Write-Host "  (no checks defined for $c)" }
             }
