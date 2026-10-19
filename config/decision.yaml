@@ -1,0 +1,9 @@
+# Decision thresholds (placeholders; tune before experiments).
+max_diff_lines: 20
+latency_limit_ms: 2000
+health_window_s: 60
+poll_interval_s: 5
+consecutive_failures: 2
+sensitive_paths:
+  - "application.properties"
+  - "security/"

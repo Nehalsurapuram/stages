@@ -1,36 +1,17 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AutoImmune
 
-## Getting Started
+AutoImmune is a B.Tech research prototype: a hybrid self-healing pipeline for a Java Spring Boot service (order-service). It observes the service, detects and diagnoses a fault, drafts three candidate patches, and validates each one in a Docker sandbox through four gates (V0 compile, V1 target test, V2 full test suite, V3 new Semgrep findings). A rule-based risk tier then decides to REJECT, ESCALATE or AUTO_APPLY. Auto-applied patches are deployed, watched over a health window, and either promoted or rolled back, with evidence recorded for every candidate. The research question is how much execution evidence lets an AI-generated patch deploy without human review, and what each gate catches.
 
-First, run the development server:
+## Team
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Agni M N
+- Pradeep S
+- S Nehal
+
+**Guide:** Mrs. M. Shona
+
+## Running tests
+
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+.\.venv\Scripts\python -m pytest
+```
