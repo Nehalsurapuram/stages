@@ -139,10 +139,12 @@ def check_patches(patches: list[Patch], fault_id: str, repo: Path = REPO) -> lis
                 p.applies, p.apply_error = False, "empty diff"
                 continue
             diff = p.diff if p.diff.endswith("\n") else p.diff + "\n"
-            res = subprocess.run(["git", "apply", "--check", "-"], cwd=work, input=diff,
-                                 capture_output=True, text=True, encoding="utf-8")
+            # Bytes, not text mode: on Windows text-mode stdin turns \n into \r\n and git apply rejects hunks.
+            res = subprocess.run(["git", "apply", "--check", "-"], cwd=work, input=diff.encode("utf-8"),
+                                 capture_output=True)
             p.applies = res.returncode == 0
-            p.apply_error = None if p.applies else (res.stderr.strip() or f"git apply exited {res.returncode}")
+            stderr = res.stderr.decode("utf-8", "replace").strip()
+            p.apply_error = None if p.applies else (stderr or f"git apply exited {res.returncode}")
             if not p.applies:
                 log.info("patch %s does not apply: %s", p.candidate_id, p.apply_error)
     return patches

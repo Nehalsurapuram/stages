@@ -120,6 +120,14 @@ def test_scripted_mode_loads_f06_candidates():
     assert len(get_provider("scripted").draft_patches(diag, sources(), "F06")) == 3
 
 
+@pytest.mark.parametrize("fault", ["F06", "F01", "F04"])
+def test_every_scripted_candidate_applies_on_top_of_its_fault(fault):
+    # Regression: text-mode stdin on Windows rewrote \n as \r\n and made some F04 hunks fail to apply.
+    diag = Diagnosis(causes=[Cause(1, SERVICE, None, "r", "e")], provider_mode="rule")
+    patches = get_provider("scripted").draft_patches(diag, {}, fault, n=None)
+    assert patches and [(p.candidate_kind, p.applies, p.apply_error) for p in patches if not p.applies] == []
+
+
 def test_scripted_mode_never_opens_labels_or_hidden_tests(monkeypatch):
     opened = []
     real_read_text = Path.read_text

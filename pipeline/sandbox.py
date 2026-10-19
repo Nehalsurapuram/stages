@@ -140,7 +140,10 @@ def _container_name(gate: str) -> str:
 def _git_apply(cwd: Path, diff: str, check: bool) -> subprocess.CompletedProcess:
     args = ["git", "apply"] + (["--check"] if check else []) + ["-"]
     text = diff if diff.endswith("\n") else diff + "\n"
-    return subprocess.run(args, cwd=cwd, input=text, capture_output=True, text=True, encoding="utf-8")
+    # Bytes, not text mode: on Windows text-mode stdin turns \n into \r\n and git apply then rejects hunks.
+    r = subprocess.run(args, cwd=cwd, input=text.encode("utf-8"), capture_output=True)
+    return subprocess.CompletedProcess(r.args, r.returncode, r.stdout.decode("utf-8", "replace"),
+                                       r.stderr.decode("utf-8", "replace"))
 
 
 def _copy_tree(src: Path, dst: Path) -> Path:
@@ -194,6 +197,18 @@ def new_findings(baseline: list[dict], patched: list[dict]) -> list[dict]:
         else:
             new.append({k2: v for k2, v in f.items() if k2 != "_key"})
     return new
+
+
+def prepare_patched_app(fault_id: str, diff: str, dest: Path, repo: Path = REPO) -> Path:
+    """dest/app = app/ + inject.diff + candidate diff: a buildable source tree for deploy.py. Returns dest/app."""
+    dest = Path(dest)
+    _copy_tree(Path(repo) / "app", dest / "app")
+    inject = (Path(repo) / "faults" / fault_id / "inject.diff").read_text(encoding="utf-8")
+    for label, d in (("inject.diff", inject), ("candidate diff", diff)):
+        r = _git_apply(dest, d, check=False)
+        if r.returncode != 0:
+            raise SandboxError(f"{label} does not apply: {r.stderr.strip()}")
+    return dest / "app"
 
 
 # --------------------------------------------------------------------------- run_gates

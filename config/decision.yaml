@@ -1,7 +1,8 @@
 # Decision thresholds (placeholders; tune before experiments).
 max_diff_lines: 20
 latency_limit_ms: 2000
-health_window_s: 60
+health_window_s: 30
+check_interval_s: 3
 poll_interval_s: 5
 consecutive_failures: 2
 sensitive_paths:
@@ -14,3 +15,7 @@ gate_timeouts_s:
   V1: 300
   V2: 600
   V3: 300
+# Deployment: order-service listens on app_port inside its container; Docker maps it to host_port
+# (host 8080 is taken on the dev laptop, so 18080 there).
+app_port: 8080
+host_port: 18080
